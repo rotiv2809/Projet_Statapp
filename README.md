@@ -1,4 +1,5 @@
 # Projet_Statapp
+Create your local data folder: data/...
 
 Run scripts/build_sqlite_db.py
 ```
