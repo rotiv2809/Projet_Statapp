@@ -1,5 +1,5 @@
 # Projet_Statapp
-Create your own local data folder: data/... and so inside this folder, it consist of client.csv, dossier.csv, transaction.csv.
+Create your own local data folder: data/... and so inside this folder, it consists of client.csv, dossier.csv, transaction.csv.
 
 
 Run scripts/build_sqlite_db.py
