@@ -1,17 +1,27 @@
+import os
 from typing import Any, Dict
-from app.db.sqlite import get_schema_text
-
 from app.agents.sql_agent import SQLAgent
 from app.safety.sql_validator import validate_sql
-from app.pipeline.execute_sql import execute_sql
+from app.pipeline.execute_sql import execute_sql, _resolve_backend
 from app.formatters.viz_plotly import infer_plotly
-
 from gatekeeper.gatekeeper import gatekeep
-
 from app.formatters.format_response import format_response_dict
-def run_data_pipeline(db_path: str, question: str) -> Dict[str,Any]:
 
-    schema_text = get_schema_text(db_path)
+
+def _get_schema_text(db_path: str = None) -> str:
+    """Get schema from the active backend (Supabase or SQLite)."""
+    if _resolve_backend() == "supabase":
+        from app.db.supabase import get_schema_text
+        return get_schema_text()
+    else:
+        from app.db.sqlite import get_schema_text
+        path = db_path or os.getenv("SQLITE_PATH", "data/statapp.sqlite")
+        return get_schema_text(path)
+
+
+def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
+
+    schema_text = _get_schema_text(db_path)
     gk = gatekeep(question)
     if gk.status == "OUT OF SCOPE":
         return {
@@ -24,36 +34,37 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str,Any]:
         }
     if gk.status == "NEED CLARIFICATION":
         return {
-            "ok":False,
-            "stage":"gatekeeper",
-            "status":gk.status,
-            "message":"Need clarification before query the database.",
+            "ok": False,
+            "stage": "gatekeeper",
+            "status": gk.status,
+            "message": "Need clarification before query the database.",
             "clarifying_questions": gk.clarifying_question,
             "missing_slots": gk.missing_slots,
             "notes": gk.notes
         }
-    
+
     # SQL generation
     agent = SQLAgent()
     sql = agent.generate_sql(question, schema_text=schema_text)
-    
-    # SQL validation 
+
+    # SQL validation
     is_ok, reason = validate_sql(sql)
     if not is_ok:
         return {
             "ok": False,
             "stage": "sql_validator",
             "status": "BLOCKED",
-            "sql":sql,
-            "reason": reason, 
-            "message": "Generated SQL blocjed by validator"
-        }    
+            "sql": sql,
+            "reason": reason,
+            "message": "Generated SQL blocked by validator"
+        }
+
     # SQL execution
-    exec_res = execute_sql(db_path,sql)
+    exec_res = execute_sql(sql, sqlite_path=db_path)
     if not exec_res.get("ok"):
         return {
-            "ok":False,
-            "stage":"execution",
+            "ok": False,
+            "stage": "execution",
             "sql": sql,
             "error": exec_res.get("error")
         }
