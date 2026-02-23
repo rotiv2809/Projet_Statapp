@@ -1,2 +1,23 @@
+# --- Data (do NOT commit raw data/db unless using Git LFS) ---
+data/
+*.sqlite
+*.db
+
+# --- Logs / outputs ---
+logs/results/
+*.csv
+
+# Keep the reproducibility metadata file
+!logs/build_db_meta.json
+
+# --- Python / environments ---
 __pycache__/
 *.pyc
+.venv/
+env/
+.env
+.ipynb_checkpoints/
+
+# --- OS / editor ---
+.DS_Store
+.vscode/

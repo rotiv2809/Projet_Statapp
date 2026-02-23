@@ -37,7 +37,7 @@ pip install requirements.txt
 
 Adding environment variable:
 ```
-cd .env.example .env
+cp .env.example .env
 ```
 
 after having .env: 
