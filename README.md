@@ -44,6 +44,21 @@ after having .env:
 -changing LLM_Provider and LLM_Model base on your model
 -Filling your API's model.
 
+To use ollama model: 
+Go to the website
+```
+https://ollama.com/
+```
+For instance if you want to use model: sqlcoder then search it on the website.
+
+In your terminal, please input:
+```
+ollama pull sqlcoder:7b
+```
+Then, it will download automatically. please waiting until it finishes.
+
+On the other hand, the model generates by google or OpenAI. You need to have your own API. When you have it, please filling in .env (Not .env.example).
+
 To test the frontend, in your terminal runs
 ```
 streamlit run streamlit_app.py

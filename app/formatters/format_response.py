@@ -116,7 +116,7 @@ def format_response(
             total_rows=0,
         )
 
-    # Case B: 1 value -> short sentence
+    # Case B: 1 value -> dshort sentence
     if len(cols) == 1 and total_rows == 1 and len(preview_str[0]) == 1:
         val = preview_str[0][0]
         col = cols[0]

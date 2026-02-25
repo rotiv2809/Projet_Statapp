@@ -45,7 +45,7 @@ def route_message(message: str) -> RouterDecision:
     # Refuse if destructive intent or SQL injection markers
     if not q : 
         return RouterDecision(route="REFUSE", reason="destructive_or_injection")
-    # Clarify if ranking request but missing metric
+    # Clarify if ranking request
     if re.search(RANKING_PATTERN,q, flags=re.IGNORECASE): 
         need_metric = not re.search(METRIC_HINTS, q ,flags= re.IGNORECASE)
         need_time = not re.search(TIME_HINTS, q, flags= re.IGNORECASE)

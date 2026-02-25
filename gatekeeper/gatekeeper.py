@@ -63,7 +63,7 @@ def apply_rule_checks(res: GatekeeperResult) -> GatekeeperResult:
 def gatekeep(user_question: str) -> GatekeeperResult:
     q = user_question or ""
 
-    # 1) Block SQL / injection
+    # 1) Block SQL 
     if is_unsafe_user_input(q):
         return GatekeeperResult(
             status="OUT OF SCOPE",
@@ -73,7 +73,7 @@ def gatekeep(user_question: str) -> GatekeeperResult:
             notes="User input contains SQL/injection or destructive intent. Refused before SQL generation."
         )
 
-    # 2) Block PII(Personally Identifiable Information) requests (user asks for nom/prenom/date_naissance)
+    # 2) Block PII
     if re.search(PII_PATTERN, q, flags=re.IGNORECASE):
         return GatekeeperResult(
             status="OUT OF SCOPE",

@@ -14,7 +14,7 @@ class DBConfig:
 
 def _connect(cfg: DBConfig) -> sqlite3.Connection:
     """
-    Connect to SQLite. Use read-only mode by default for safety/reproducibility.
+    Connect to SQLite.
     """
     path = cfg.sqlite_path.resolve()
 
@@ -28,14 +28,14 @@ def _connect(cfg: DBConfig) -> sqlite3.Connection:
     else:
         con = sqlite3.connect(str(path), timeout=cfg.timeout_s)
 
-    # Nice defaults
+    # defaults
     con.row_factory = sqlite3.Row
     return con
 
 
 def table_exists(sqlite_path: str | Path, table_name: str) -> bool:
     """
-    Return True if table_name exists in sqlite_master (excluding internal sqlite_ tables).
+    Return True if table_name exists in sqlite_master.
     """
     cfg = DBConfig(sqlite_path=Path(sqlite_path), read_only=True)
     with _connect(cfg) as con:
@@ -56,7 +56,7 @@ def table_exists(sqlite_path: str | Path, table_name: str) -> bool:
 
 def get_schema_text(sqlite_path: str | Path) -> str:
     """
-    Build a schema string listing tables + columns (+ types + PK flags)
+    Build a schema string listing tables and columns (types + PK)
     """
     cfg = DBConfig(sqlite_path=Path(sqlite_path), read_only=True)
     lines: List[str] = []
@@ -104,10 +104,6 @@ def run_query(
 ) -> Tuple[List[str], List[Tuple[Any, ...]]]:
     """
     Execute SQL and return (columns, rows).
-
-    Notes:
-    - This function does NOT enforce SELECT-only. That belongs to your safety validator.
-    - max_rows helps protect your UI/LLM from huge outputs.
     """
     cfg = DBConfig(sqlite_path=Path(sqlite_path), read_only=True)
 

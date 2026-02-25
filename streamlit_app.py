@@ -98,7 +98,7 @@ def main():
     if not user_q:
         return
 
-    # Append + show user message
+    # Append and show user message
     user_msg = {"id": str(uuid.uuid4()), "role": "user", "content": user_q}
     st.session_state.messages.append(user_msg)
     with st.chat_message("user"):
