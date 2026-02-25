@@ -22,7 +22,7 @@ def _connect(cfg: DBConfig) -> sqlite3.Connection:
         raise FileNotFoundError(f"SQLite database not found: {path}")
 
     if cfg.read_only:
-        # Read-only connection (prevents accidental writes)
+        # Read-only connection
         uri = f"file:{path.as_posix()}?mode=ro"
         con = sqlite3.connect(uri, uri=True, timeout=cfg.timeout_s)
     else:

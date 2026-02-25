@@ -15,7 +15,7 @@ def _msg_id(m: dict) -> str:
 
 
 def render_plotly(viz: dict, key: str):
-    """Render Plotly dict produced by your pipeline: {"type":"plotly","figure":{...}}."""
+    """Render Plotly dict produced by your pipeline"""
     if not viz or viz.get("type") != "plotly":
         return
     fig_dict = viz.get("figure", {})
@@ -127,7 +127,7 @@ def main():
     else:
         assistant_text = res.get("answer_text") or res.get("message") or "Done."
 
-    # Build assistant message (unique id is crucial for Plotly + Download keys)
+    # Build assistant message
     assistant_msg = {
         "id": str(uuid.uuid4()),
         "role": "assistant",
@@ -146,7 +146,7 @@ def main():
             "row_count": res.get("row_count"),
         }
 
-    # Render assistant + extras
+    # Render assistant 
     with st.chat_message("assistant"):
         st.markdown(assistant_text)
         render_assistant_payload(assistant_msg, show_debug=show_debug)
