@@ -31,7 +31,7 @@ source .venv/bin/activate
 You need to install your own requirements.txt in your virtual environment 
 ```
 
-pip install requirements.txt
+pip install -r requirements.txt
 
 ```
 
