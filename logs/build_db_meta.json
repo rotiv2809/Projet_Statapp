@@ -9,7 +9,7 @@
   },
   "output": {
     "sqlite": "data/statapp.sqlite",
-    "sqlite_sha256": "cfda8713477b95eb05f5ff44844c41dbcbd8e69ebfc5699eefe8ef926e0d5071",
+    "sqlite_sha256": "b654c1cf1f57f1ccc4d4f3220092a79c83c6c338375b86acd16c679275944f06",
     "row_counts": {
       "clients": 5000,
       "dossiers": 10000,

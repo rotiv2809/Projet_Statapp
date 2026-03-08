@@ -1,40 +1,71 @@
 # Project Folder Guide
 
-This document explains the role of each main folder in the repository.
+This document explains the current repository layout.
 
-## `/app`
-Core application package.
+## Tree
+```text
+Projet_Statapp/
+  app/
+    __init__.py               # package entrypoint
+    main.py                   # CLI entrypoint (single pipeline run)
+    agents/
+      __init__.py
+      agent_configs.py        # role + system prompt definitions for multi-agent flow
+      analysis_agent.py       # NL explanation of SQL results
+      error_agent.py          # SQL repair after validation/execution failures
+      guardrail_agent.py      # combines gatekeeper + router into one decision point
+      router_agent.py         # route: REFUSE/CLARIFY/DATA/CHAT
+      sql_agent.py            # SQL generation agent
+      viz_agent.py            # LLM-driven Plotly code generation (with fallback)
+      sql_prompt.py           # SQL generation system prompt
+    db/
+      __init__.py
+      sqlite.py               # schema extraction + query execution helpers
+    formatters/
+      __init__.py
+      format_response.py      # text/table response formatting
+      viz_plotly.py           # chart inference from result shape
+    llm/
+      __init__.py
+      factory.py              # model/provider factory (OpenAI/Google/Ollama)
+    pipeline/
+      __init__.py
+      data_pipeline.py        # guardrails -> sql -> validate/execute -> error_recovery -> analysis -> viz
+      execute_sql.py          # safe SQL execution wrapper
+      langgraph_flow.py       # optional LangGraph orchestration of the same agents
+    safety/
+      __init__.py
+      sql_validator.py        # SQL safety rules (SELECT-only + PII block)
+  gatekeeper/
+    __init__.py
+    gatekeeper.py             # user-input scope/safety checks
+    schemas.py
+  scripts/
+    __init__.py
+    build_sqlite_db.py
+    sanity_checks.py
+    test_data_pipeline.py
+    test_router.py
+    test_safety_prompts.py
+  logs/
+    build_db_meta.json
+  docs/
+    diagrams/
+      README.md
+      project_architecture.mmd
+      project_architecture.svg
+      runtime_flow.mmd
+      runtime_flow.svg
+  streamlit_app.py            # Streamlit UI
+  requirements.txt
+  README.md
+  README_ARCHITECTURE.md
+  PROJECT_STRUCTURE.md
+```
 
-- `app/main.py`: Main orchestration entrypoint for the question-to-SQL pipeline.
-- `app/agents/`: Agent layer responsible for routing and SQL generation prompts/logic.
-- `app/pipeline/`: Execution workflow (query generation, execution, response assembly).
-- `app/llm/`: LLM provider/model factory abstraction.
-- `app/db/`: Database access utilities (SQLite schema loading and query execution).
-- `app/formatters/`: Output formatting helpers (tabular/text and Plotly visualization utilities).
-- `app/safety/`: SQL guardrails and validation rules.
+## Folder responsibilities
 
-## `/scripts`
-Operational and validation scripts for local development.
-
-- Database construction script from CSV sources.
-- Pipeline sanity checks and focused test scripts for router/safety/data pipeline behavior.
-
-## `/gatekeeper`
-Dedicated safety/gating module used to classify or filter user requests before SQL generation.
-
-- Includes rules, prompt templates, and schemas used by gatekeeper logic.
-
-## `/logs`
-Generated metadata/artifacts produced by build or verification scripts.
-
-- Example: database metadata JSON emitted during data build/check steps.
-
-## `/.git`
-Git internal repository data (history, refs, hooks, objects).
-
-## Root-level files
-
-- `streamlit_app.py`: Streamlit frontend entrypoint.
-- `requirements.txt`: Python dependencies.
-- `README.md`: Setup, run, and manual test instructions.
-
+- `app/`: main application code.
+- `gatekeeper/`: input-scope and safety gating before SQL generation.
+- `scripts/`: local build, sanity checks, and script-style tests.
+- `logs/`: generated artifacts.

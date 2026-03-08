@@ -116,11 +116,9 @@ def main():
     ok = res.get("ok", True)
 
     # Decide assistant text
-    if ok is False and route == "REFUSE":
-        assistant_text = res.get("message") or "Refused: unsafe or destructive request."
-    elif ok is False and route == "CLARIFY":
+    if ok is False and route == "CLARIFY":
         assistant_text = res.get("question") or res.get("message") or "I need clarification."
-    elif route in ("CHAT", "OUT_OF_SCOPE"):
+    elif route == "OUT_OF_SCOPE":
         assistant_text = res.get("message") or "Out of scope."
     elif route == "ERROR":
         assistant_text = res.get("message") or "Error."

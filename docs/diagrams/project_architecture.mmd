@@ -1,0 +1,75 @@
+flowchart TB
+    U[User] --> S[Streamlit UI\nstreamlit_app.py]
+    U --> C[CLI\napp/main.py]
+
+    S --> P[Pipeline Orchestrator\napp/pipeline/data_pipeline.py]
+    C --> P
+
+    subgraph AG[Agents]
+      G[GuardrailsAgent]
+      R[RouterAgent]
+      Q[SQLAgent]
+      E[ErrorAgent]
+      A[AnalysisAgent]
+      V[VizAgent]
+    end
+
+    subgraph PL[Pipeline Helpers]
+      X[execute_sql.py]
+    end
+
+    subgraph GK[Gatekeeper]
+      GK1[gatekeeper.py]
+      GK2[schemas.py]
+    end
+
+    subgraph SAFE[Safety]
+      SV[sql_validator.py]
+    end
+
+    subgraph DB[Data Layer]
+      D1[sqlite.py]
+      D2[SQLite DB]
+    end
+
+    subgraph FMT[Formatters]
+      F1[format_response.py]
+      F2[viz_plotly.py]
+    end
+
+    subgraph LLM[LLM Layer]
+      L1[llm/factory.py]
+      L2[OpenAI / Google / Ollama]
+    end
+
+    subgraph LG[Optional Graph Runtime]
+      LG1[app/pipeline/langgraph_flow.py]
+      LG2[build_text2sql_graph()]
+    end
+
+    P --> G --> GK1 --> GK2
+    G --> R
+    P --> Q --> L1 --> L2
+    P --> E --> L1
+    P --> A --> L1
+    P --> V --> L1
+
+    P --> SV
+    P --> X
+    X --> SV
+    X --> D1 --> D2
+    P --> F1
+    P --> F2
+
+    LG1 --> LG2
+    LG2 --> G
+    LG2 --> R
+    LG2 --> Q
+    LG2 --> X
+    LG2 --> SV
+    LG2 --> D1
+    LG2 --> F1
+    LG2 --> F2
+    LG2 --> E
+    LG2 --> A
+    LG2 --> V

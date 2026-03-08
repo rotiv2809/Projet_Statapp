@@ -1,6 +1,9 @@
 # Projet_Statapp
 Create your own local data folder: data/... and so inside this folder, it consists of client.csv, dossier.csv, transaction.csv.
 
+Architecture and file-connection guide:
+`README_ARCHITECTURE.md`
+
 Requirement python version 3.12 
 
 If you want to change version python
@@ -23,7 +26,7 @@ python3 scripts/build_sqlite_db.py \
 
 create virtual enviromment
 ```
-python3 -m .venv venv
+python3 -m venv .venv
 source .venv/bin/activate
 ```
 
@@ -105,35 +108,61 @@ print('VALID:', validate_sql(sql)); \
 print(execute_sql('data/statapp.sqlite', sql))"
 ```
 
-```
+```text
 Projet_Statapp/
   app/
     __init__.py
-    config.py
+    main.py
+    agents/
+      __init__.py
+      agent_configs.py
+      analysis_agent.py
+      error_agent.py
+      guardrail_agent.py
+      router_agent.py
+      sql_agent.py
+      sql_prompt.py
+      viz_agent.py
     db/
       __init__.py
       sqlite.py
-    prompts/
+    formatters/
       __init__.py
-      router.py
-      sql.py
-      gatekeeper.py
-      summary.py
+      format_response.py
+      viz_plotly.py
+    llm/
+      __init__.py
+      factory.py
+    pipeline/
+      __init__.py
+      data_pipeline.py
+      execute_sql.py
+      langgraph_flow.py
     safety/
       __init__.py
       sql_validator.py
-    agents/
-      __init__.py
-      router_agent.py
-      gatekeeper_agent.py
-      sql_agent.py
-      chat_agent.py   
-    main.py          (CLI or FastAPI entry)
-  benchmarks/
-    benchmark_v0.csv
+  gatekeeper/
+    __init__.py
+    gatekeeper.py
+    schemas.py
   scripts/
-    build_sqlite_db.py   (keep yours)
-    run_benchmark.py     (new)
-  requirements.txt       
+    __init__.py
+    build_sqlite_db.py
+    sanity_checks.py
+    test_data_pipeline.py
+    test_router.py
+    test_safety_prompts.py
+  logs/
+    build_db_meta.json
+  docs/
+    diagrams/
+      README.md
+      project_architecture.mmd
+      project_architecture.svg
+      runtime_flow.mmd
+      runtime_flow.svg
+  streamlit_app.py
+  requirements.txt
+  PROJECT_STRUCTURE.md
+  README_ARCHITECTURE.md
 ```
-

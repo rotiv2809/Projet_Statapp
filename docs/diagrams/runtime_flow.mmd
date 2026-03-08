@@ -1,0 +1,20 @@
+flowchart TD
+    A[Question from UI/CLI] --> B[Load DB Schema]
+    B --> C[GuardrailsAgent.evaluate]
+    C -->|OUT_OF_SCOPE| Z1[Return block message]
+    C -->|NEEDS CLARIFICATION| Z2[Return clarification question]
+    C -->|READY_FOR_SQL| D[SQLAgent.generate_sql]
+
+    D --> E[validate_sql]
+    E -->|invalid| F[ErrorAgent.repair_sql]
+    E -->|valid| G[execute_sql]
+
+    G -->|execution error| F
+    F --> H{Retry count < max?}
+    H -->|yes| E
+    H -->|no| Z3[Return error recovery failure]
+
+    G -->|success| I[format_response]
+    I --> J[AnalysisAgent.summarize]
+    J --> K[VizAgent.generate\n(fallback: infer_plotly)]
+    K --> L[Return final payload]

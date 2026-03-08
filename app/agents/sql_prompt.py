@@ -1,6 +1,8 @@
 # app/agents/sql_prompt.py
 
-SQL_SYSTEM_PROMPT = """You are a senior data analyst. Your job is to translate a user's question into ONE SQLite SELECT query.
+from app.agents.agent_configs import AGENT_CONFIGS
+
+SQL_SYSTEM_PROMPT = AGENT_CONFIGS["sql_agent"]["system_prompt"] + """
 
 Rules (must follow):
 - Output ONLY the SQL query. No explanations. No markdown. No code fences.
