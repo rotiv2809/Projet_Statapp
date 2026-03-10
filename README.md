@@ -4,6 +4,9 @@ Create your own local data folder: data/... and so inside this folder, it consis
 Architecture and file-connection guide:
 `README_ARCHITECTURE.md`
 
+Configuration tracker (what to change, where, and why):
+`docs/CONFIG_TRACKER.md`
+
 Requirement python version 3.12 
 
 If you want to change version python

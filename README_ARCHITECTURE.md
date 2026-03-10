@@ -12,6 +12,9 @@ This document explains how the project works end-to-end:
 Diagrams are available in:
 `docs/diagrams/`
 
+Configuration and decision tracking is in:
+`docs/CONFIG_TRACKER.md`
+
 ## 1. What This Project Does
 
 StatApp is a Text-to-SQL assistant for a SQLite database (`clients`, `dossiers`, `transactions`).

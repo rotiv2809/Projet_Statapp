@@ -50,6 +50,7 @@ Projet_Statapp/
   logs/
     build_db_meta.json
   docs/
+    CONFIG_TRACKER.md          # central register of config values + reasons + change log template
     diagrams/
       README.md
       project_architecture.mmd

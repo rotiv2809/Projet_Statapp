@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="980" viewBox="0 0 1300 980">
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="980" viewBox="0 0 1500 980">
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L0,6 L9,3 z" fill="#334155" />
+      <path d="M0,0 L0,6 L9,3 z" fill="#334155"/>
     </marker>
     <style>
       .title { font: 700 28px Arial, sans-serif; fill: #0f172a; }
@@ -16,88 +16,96 @@
     </style>
   </defs>
 
-  <text x="30" y="45" class="title">Runtime Request Flow (Synchronous Pipeline)</text>
+  <text x="30" y="45" class="title">Runtime Flow (Synchronous Pipeline)</text>
 
-  <rect x="60" y="90" width="260" height="64" class="node" />
-  <text x="190" y="128" class="label" text-anchor="middle">Question from UI / CLI</text>
+  <!-- Main vertical path -->
+  <rect x="120" y="80" width="360" height="62" class="node"/>
+  <text x="300" y="118" class="label" text-anchor="middle">1. Question from UI/CLI</text>
 
-  <rect x="60" y="185" width="260" height="64" class="node" />
-  <text x="190" y="223" class="label" text-anchor="middle">Load Schema</text>
+  <rect x="120" y="165" width="360" height="62" class="node"/>
+  <text x="300" y="203" class="label" text-anchor="middle">2. Load schema (sqlite.py)</text>
 
-  <rect x="60" y="280" width="260" height="74" class="node" />
-  <text x="190" y="314" class="label" text-anchor="middle">GuardrailsAgent.evaluate</text>
-  <text x="190" y="334" class="small" text-anchor="middle">gatekeeper + router</text>
+  <rect x="120" y="250" width="360" height="74" class="node"/>
+  <text x="300" y="284" class="label" text-anchor="middle">3. GuardrailsAgent.evaluate</text>
+  <text x="300" y="304" class="small" text-anchor="middle">gatekeeper + router</text>
 
-  <rect x="390" y="260" width="250" height="70" class="end" />
-  <text x="515" y="300" class="label" text-anchor="middle">OUT_OF_SCOPE</text>
-  <rect x="390" y="345" width="250" height="70" class="end" />
-  <text x="515" y="385" class="label" text-anchor="middle">NEEDS CLARIFICATION</text>
+  <rect x="120" y="350" width="360" height="62" class="node"/>
+  <text x="300" y="388" class="label" text-anchor="middle">4. SQLAgent.generate_sql</text>
 
-  <rect x="60" y="390" width="260" height="64" class="node" />
-  <text x="190" y="428" class="label" text-anchor="middle">SQLAgent.generate_sql</text>
+  <polygon points="300,435 420,485 300,535 180,485" class="decision"/>
+  <text x="300" y="490" class="label" text-anchor="middle">5. validate_sql?</text>
 
-  <rect x="60" y="485" width="260" height="64" class="node" />
-  <text x="190" y="523" class="label" text-anchor="middle">validate_sql</text>
+  <rect x="120" y="560" width="360" height="62" class="node"/>
+  <text x="300" y="598" class="label" text-anchor="middle">6. execute_sql</text>
 
-  <polygon points="500,510 620,560 500,610 380,560" class="decision" />
-  <text x="500" y="565" class="label" text-anchor="middle">Valid?</text>
+  <polygon points="300,645 420,695 300,745 180,695" class="decision"/>
+  <text x="300" y="700" class="label" text-anchor="middle">Execution OK?</text>
 
-  <rect x="60" y="585" width="260" height="64" class="node" />
-  <text x="190" y="623" class="label" text-anchor="middle">execute_sql</text>
+  <rect x="120" y="770" width="360" height="62" class="node"/>
+  <text x="300" y="808" class="label" text-anchor="middle">7. format_response</text>
 
-  <polygon points="500,690 620,740 500,790 380,740" class="decision" />
-  <text x="500" y="745" class="label" text-anchor="middle">Execution OK?</text>
+  <rect x="540" y="770" width="360" height="62" class="node"/>
+  <text x="720" y="808" class="label" text-anchor="middle">8. AnalysisAgent.summarize</text>
 
-  <rect x="700" y="620" width="280" height="80" class="node" />
-  <text x="840" y="655" class="label" text-anchor="middle">ErrorAgent.repair_sql</text>
-  <text x="840" y="676" class="small" text-anchor="middle">question + schema + error</text>
+  <rect x="960" y="770" width="360" height="62" class="node"/>
+  <text x="1140" y="808" class="label" text-anchor="middle">9. VizAgent.generate</text>
+  <text x="1140" y="826" class="small" text-anchor="middle">fallback: viz_plotly</text>
 
-  <polygon points="1080,640 1220,690 1080,740 940,690" class="decision" />
-  <text x="1080" y="695" class="label" text-anchor="middle">Retry left?</text>
-  <rect x="940" y="765" width="280" height="70" class="end" />
-  <text x="1080" y="805" class="label" text-anchor="middle">ERROR (max retry)</text>
+  <rect x="960" y="860" width="360" height="62" class="ok"/>
+  <text x="1140" y="898" class="label" text-anchor="middle">10. Return final payload</text>
 
-  <rect x="60" y="760" width="260" height="64" class="node" />
-  <text x="190" y="798" class="label" text-anchor="middle">format_response</text>
+  <!-- Guardrail exits -->
+  <rect x="560" y="245" width="320" height="62" class="end"/>
+  <text x="720" y="283" class="label" text-anchor="middle">Return OUT_OF_SCOPE message</text>
 
-  <rect x="360" y="840" width="260" height="64" class="node" />
-  <text x="490" y="878" class="label" text-anchor="middle">AnalysisAgent.summarize</text>
+  <rect x="560" y="325" width="320" height="62" class="end"/>
+  <text x="720" y="363" class="label" text-anchor="middle">Return CLARIFY question</text>
 
-  <rect x="660" y="840" width="260" height="64" class="node" />
-  <text x="790" y="878" class="label" text-anchor="middle">VizAgent.generate</text>
+  <!-- Retry loop on right -->
+  <rect x="560" y="455" width="320" height="72" class="node"/>
+  <text x="720" y="490" class="label" text-anchor="middle">ErrorAgent.repair_sql</text>
+  <text x="720" y="510" class="small" text-anchor="middle">question + schema + error</text>
 
-  <rect x="960" y="840" width="260" height="64" class="ok" />
-  <text x="1090" y="878" class="label" text-anchor="middle">Return final payload</text>
+  <polygon points="1040,450 1170,500 1040,550 910,500" class="decision"/>
+  <text x="1040" y="505" class="label" text-anchor="middle">Retry left?</text>
 
-  <path class="edge" d="M190 154 L190 185" />
-  <path class="edge" d="M190 249 L190 280" />
-  <path class="edge" d="M320 308 L390 295" />
-  <path class="edge" d="M320 324 L390 380" />
-  <path class="edge" d="M190 354 L190 390" />
-  <path class="edge" d="M190 454 L190 485" />
-  <path class="edge" d="M320 517 L380 560" />
-  <path class="edge" d="M500 610 L500 690" />
-  <path class="edge" d="M500 790 L500 840" />
-  <path class="edge" d="M500 840 L660 840" />
-  <path class="edge" d="M920 872 L960 872" />
+  <rect x="910" y="575" width="260" height="62" class="end"/>
+  <text x="1040" y="613" class="label" text-anchor="middle">Return ERROR</text>
 
-  <path class="edge" d="M380 560 L320 560 L320 617" />
-  <text x="325" y="580" class="note">yes</text>
-  <path class="edge" d="M500 610 L500 620 L700 620" />
-  <text x="545" y="635" class="note">no</text>
+  <!-- Main arrows -->
+  <path class="edge" d="M300 142 L300 165"/>
+  <path class="edge" d="M300 227 L300 250"/>
+  <path class="edge" d="M300 324 L300 350"/>
+  <path class="edge" d="M300 412 L300 435"/>
+  <path class="edge" d="M300 535 L300 560"/>
+  <path class="edge" d="M300 622 L300 645"/>
+  <path class="edge" d="M300 745 L300 770"/>
+  <path class="edge" d="M480 801 L540 801"/>
+  <path class="edge" d="M900 801 L960 801"/>
+  <path class="edge" d="M1140 832 L1140 860"/>
 
-  <path class="edge" d="M320 617 L320 740 L380 740" />
-  <path class="edge" d="M620 740 L700 690" />
-  <text x="640" y="730" class="note">no</text>
-  <path class="edge" d="M620 560 L620 740" />
-  <text x="626" y="640" class="note">yes</text>
+  <!-- Guardrail branch arrows -->
+  <path class="edge" d="M480 272 L560 276"/>
+  <text x="510" y="266" class="note">OUT_OF_SCOPE</text>
+  <path class="edge" d="M480 302 L560 356"/>
+  <text x="506" y="334" class="note">NEEDS CLARIFICATION</text>
 
-  <path class="edge" d="M980 690 L940 690" />
-  <path class="edge" d="M1080 740 L1080 765" />
-  <path class="edge" d="M1220 690 L1240 690 L1240 560 L620 560" />
-  <text x="1140" y="675" class="note">yes</text>
-  <text x="1068" y="758" class="note">no</text>
+  <!-- Validate branch -->
+  <path class="edge" d="M420 485 L560 491"/>
+  <text x="470" y="478" class="note">invalid</text>
+  <path class="edge" d="M300 535 L300 560"/>
+  <text x="318" y="550" class="note">valid</text>
 
-  <path class="edge" d="M320 792 L360 872" />
-  <path class="edge" d="M620 872 L660 872" />
+  <!-- Execute branch -->
+  <path class="edge" d="M420 695 L560 491"/>
+  <text x="470" y="642" class="note">execution error</text>
+  <path class="edge" d="M300 745 L300 770"/>
+  <text x="318" y="760" class="note">success</text>
+
+  <!-- Retry arrows -->
+  <path class="edge" d="M880 491 L910 500"/>
+  <path class="edge" d="M1040 550 L1040 575"/>
+  <text x="1052" y="565" class="note">no</text>
+  <path class="edge" d="M1170 500 L1240 500 L1240 485 L420 485"/>
+  <text x="1184" y="492" class="note">yes</text>
 </svg>

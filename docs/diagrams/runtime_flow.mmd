@@ -1,20 +1,21 @@
 flowchart TD
-    A[Question from UI/CLI] --> B[Load DB Schema]
-    B --> C[GuardrailsAgent.evaluate]
-    C -->|OUT_OF_SCOPE| Z1[Return block message]
-    C -->|NEEDS CLARIFICATION| Z2[Return clarification question]
-    C -->|READY_FOR_SQL| D[SQLAgent.generate_sql]
+    Q[1. User question] --> SCHEMA[2. Load schema (sqlite.py)]
+    SCHEMA --> GR[3. GuardrailsAgent.evaluate]
 
-    D --> E[validate_sql]
-    E -->|invalid| F[ErrorAgent.repair_sql]
-    E -->|valid| G[execute_sql]
+    GR -->|OUT OF SCOPE| OOS[Return OUT_OF_SCOPE message]
+    GR -->|NEEDS CLARIFICATION| CLAR[Return CLARIFY question]
+    GR -->|READY_FOR_SQL| SQL[4. SQLAgent.generate_sql]
 
-    G -->|execution error| F
-    F --> H{Retry count < max?}
-    H -->|yes| E
-    H -->|no| Z3[Return error recovery failure]
+    SQL --> VAL[5. validate_sql]
+    VAL -->|invalid| REPAIR[ErrorAgent.repair_sql]
+    VAL -->|valid| EXEC[6. execute_sql]
 
-    G -->|success| I[format_response]
-    I --> J[AnalysisAgent.summarize]
-    J --> K[VizAgent.generate\n(fallback: infer_plotly)]
-    K --> L[Return final payload]
+    EXEC -->|execution error| REPAIR
+    REPAIR --> RETRY{Retry left?}
+    RETRY -->|yes| VAL
+    RETRY -->|no| FAIL[Return ERROR (max retries)]
+
+    EXEC -->|success| FORMAT[7. format_response]
+    FORMAT --> ANALYSIS[8. AnalysisAgent.summarize]
+    ANALYSIS --> VIZ[9. VizAgent.generate\nfallback: viz_plotly]
+    VIZ --> DONE[10. Return final payload]

@@ -1,7 +1,7 @@
-  <svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1040" viewBox="0 0 1500 1040">
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="920" viewBox="0 0 1600 920">
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L0,6 L9,3 z" fill="#334155" />
+      <path d="M0,0 L0,6 L9,3 z" fill="#334155"/>
     </marker>
     <style>
       .title { font: 700 28px Arial, sans-serif; fill: #0f172a; }
@@ -9,116 +9,111 @@
       .node { fill: #ffffff; stroke: #64748b; stroke-width: 2; rx: 10; }
       .label { font: 600 14px Arial, sans-serif; fill: #0f172a; }
       .small { font: 500 12px Arial, sans-serif; fill: #334155; }
-      .edge { stroke: #334155; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .edge { stroke: #334155; stroke-width: 2.1; fill: none; marker-end: url(#arrow); }
+      .dash { stroke: #64748b; stroke-width: 2; fill: none; stroke-dasharray: 8 6; marker-end: url(#arrow); }
     </style>
   </defs>
 
-  <text x="40" y="48" class="title">StatApp Project Architecture</text>
+  <text x="24" y="42" class="title">StatApp Project Architecture (Current Code)</text>
 
-  <!-- UI -->
-  <rect x="40" y="90" width="420" height="140" class="group" />
-  <text x="60" y="115" class="label">Interfaces</text>
-  <rect x="60" y="130" width="180" height="80" class="node" />
-  <text x="78" y="165" class="label">Streamlit UI</text>
-  <text x="78" y="185" class="small">streamlit_app.py</text>
-  <rect x="260" y="130" width="180" height="80" class="node" />
-  <text x="325" y="165" class="label" text-anchor="middle">CLI</text>
-  <text x="350" y="185" class="small" text-anchor="middle">app/main.py</text>
+  <!-- Entry -->
+  <rect x="24" y="70" width="280" height="260" class="group"/>
+  <text x="44" y="98" class="label">Entry Points</text>
+  <rect x="44" y="115" width="240" height="52" class="node"/>
+  <text x="164" y="147" class="label" text-anchor="middle">User</text>
+  <rect x="44" y="185" width="240" height="60" class="node"/>
+  <text x="164" y="215" class="label" text-anchor="middle">Streamlit UI</text>
+  <text x="164" y="233" class="small" text-anchor="middle">streamlit_app.py</text>
+  <rect x="44" y="262" width="240" height="60" class="node"/>
+  <text x="164" y="292" class="label" text-anchor="middle">CLI</text>
+  <text x="164" y="310" class="small" text-anchor="middle">app/main.py</text>
 
-  <!-- Pipeline -->
-  <rect x="520" y="90" width="460" height="140" class="group" />
-  <text x="540" y="115" class="label">Orchestration</text>
-  <rect x="540" y="130" width="420" height="80" class="node" />
-  <text x="750" y="164" class="label" text-anchor="middle">Pipeline Orchestrator</text>
-  <text x="750" y="185" class="small" text-anchor="middle">app/pipeline/data_pipeline.py</text>
+  <!-- Orchestrator -->
+  <rect x="334" y="160" width="330" height="100" class="node"/>
+  <text x="499" y="198" class="label" text-anchor="middle">Pipeline Orchestrator</text>
+  <text x="499" y="220" class="small" text-anchor="middle">app/pipeline/data_pipeline.py</text>
 
   <!-- Agents -->
-  <rect x="40" y="280" width="940" height="300" class="group" />
-  <text x="60" y="305" class="label">Agents</text>
-  <rect x="60" y="330" width="140" height="78" class="node" />
-  <text x="140" y="370" class="label" text-anchor="middle">GuardrailsAgent</text>
-  <rect x="220" y="330" width="120" height="78" class="node" />
-  <text x="280" y="370" class="label" text-anchor="middle">RouterAgent</text>
-  <rect x="360" y="330" width="120" height="78" class="node" />
-  <text x="420" y="370" class="label" text-anchor="middle">SQLAgent</text>
-  <rect x="500" y="330" width="120" height="78" class="node" />
-  <text x="560" y="370" class="label" text-anchor="middle">ErrorAgent</text>
-  <rect x="640" y="330" width="140" height="78" class="node" />
-  <text x="710" y="370" class="label" text-anchor="middle">AnalysisAgent</text>
-  <rect x="800" y="330" width="140" height="78" class="node" />
-  <text x="870" y="370" class="label" text-anchor="middle">VizAgent</text>
+  <rect x="700" y="70" width="330" height="430" class="group"/>
+  <text x="720" y="98" class="label">Multi-Agent Layer</text>
+  <rect x="720" y="115" width="290" height="52" class="node"/>
+  <text x="865" y="147" class="label" text-anchor="middle">GuardrailsAgent</text>
+  <rect x="720" y="182" width="290" height="52" class="node"/>
+  <text x="865" y="214" class="label" text-anchor="middle">SQLAgent</text>
+  <rect x="720" y="249" width="290" height="52" class="node"/>
+  <text x="865" y="281" class="label" text-anchor="middle">ErrorAgent</text>
+  <rect x="720" y="316" width="290" height="52" class="node"/>
+  <text x="865" y="348" class="label" text-anchor="middle">AnalysisAgent</text>
+  <rect x="720" y="383" width="290" height="52" class="node"/>
+  <text x="865" y="415" class="label" text-anchor="middle">VizAgent</text>
 
-  <!-- Pipeline helper -->
-  <rect x="60" y="430" width="260" height="90" class="node" />
-  <text x="190" y="463" class="label" text-anchor="middle">Pipeline Helper</text>
-  <text x="190" y="485" class="small" text-anchor="middle">app/pipeline/execute_sql.py</text>
+  <!-- Safety + data -->
+  <rect x="1060" y="70" width="516" height="430" class="group"/>
+  <text x="1080" y="98" class="label">Safety, Data, and Helpers</text>
 
-  <!-- Gatekeeper -->
-  <rect x="340" y="430" width="260" height="90" class="node" />
-  <text x="190" y="463" class="label" text-anchor="middle">Gatekeeper</text>
-  <text x="470" y="485" class="small" text-anchor="middle">gatekeeper/gatekeeper.py</text>
-  <text x="470" y="503" class="small" text-anchor="middle">+ gatekeeper/schemas.py</text>
-  <text x="470" y="463" class="label" text-anchor="middle">Gatekeeper</text>
+  <rect x="1080" y="115" width="230" height="60" class="node"/>
+  <text x="1195" y="145" class="label" text-anchor="middle">gatekeeper.py</text>
+  <text x="1195" y="163" class="small" text-anchor="middle">+ schemas.py</text>
 
-  <!-- LLM -->
-  <rect x="620" y="430" width="280" height="90" class="node" />
-  <text x="760" y="463" class="label" text-anchor="middle">LLM Factory</text>
-  <text x="760" y="485" class="small" text-anchor="middle">app/llm/factory.py</text>
-  <text x="760" y="503" class="small" text-anchor="middle">OpenAI / Google / Ollama</text>
+  <rect x="1328" y="115" width="230" height="60" class="node"/>
+  <text x="1443" y="140" class="label" text-anchor="middle">RouterAgent</text>
+  <text x="1443" y="160" class="small" text-anchor="middle">router_agent.py</text>
 
-  <!-- Safety -->
-  <rect x="920" y="430" width="260" height="90" class="node" />
-  <text x="1050" y="463" class="label" text-anchor="middle">SQL Validator</text>
-  <text x="1050" y="485" class="small" text-anchor="middle">app/safety/sql_validator.py</text>
+  <rect x="1080" y="192" width="230" height="60" class="node"/>
+  <text x="1195" y="226" class="label" text-anchor="middle">sql_validator.py</text>
 
-  <!-- Data + formatting -->
-  <rect x="1020" y="280" width="430" height="300" class="group" />
-  <text x="1040" y="305" class="label">Data and Output</text>
-  <rect x="1040" y="330" width="190" height="78" class="node" />
-  <text x="1135" y="370" class="label" text-anchor="middle">DB Access</text>
-  <text x="1135" y="390" class="small" text-anchor="middle">app/db/sqlite.py</text>
-  <rect x="1240" y="330" width="190" height="78" class="node" />
-  <text x="1335" y="370" class="label" text-anchor="middle">SQLite DB</text>
-  <rect x="1040" y="430" width="190" height="78" class="node" />
-  <text x="1135" y="467" class="label" text-anchor="middle">Formatter</text>
-  <text x="1135" y="487" class="small" text-anchor="middle">format_response.py</text>
-  <rect x="1240" y="430" width="190" height="78" class="node" />
-  <text x="1335" y="467" class="label" text-anchor="middle">Viz Fallback</text>
-  <text x="1335" y="487" class="small" text-anchor="middle">viz_plotly.py</text>
+  <rect x="1080" y="269" width="230" height="60" class="node"/>
+  <text x="1195" y="300" class="label" text-anchor="middle">execute_sql.py</text>
+
+  <rect x="1328" y="269" width="230" height="60" class="node"/>
+  <text x="1443" y="300" class="label" text-anchor="middle">sqlite.py + SQLite DB</text>
+
+  <rect x="1080" y="346" width="230" height="60" class="node"/>
+  <text x="1195" y="377" class="label" text-anchor="middle">format_response.py</text>
+
+  <rect x="1328" y="346" width="230" height="60" class="node"/>
+  <text x="1443" y="377" class="label" text-anchor="middle">viz_plotly.py fallback</text>
+
+  <rect x="1328" y="192" width="230" height="60" class="node"/>
+  <text x="1443" y="220" class="label" text-anchor="middle">llm/factory.py</text>
+  <text x="1443" y="238" class="small" text-anchor="middle">OpenAI / Google / Ollama</text>
 
   <!-- Optional LangGraph -->
-  <rect x="40" y="640" width="1410" height="340" class="group" />
-  <text x="60" y="625" class="label">Optional Graph Runtime</text>
-  <rect x="60" y="690" width="450" height="100" class="node" />
-  <text x="285" y="728" class="label" text-anchor="middle">LangGraph Builder</text>
-  <text x="285" y="750" class="small" text-anchor="middle">app/pipeline/langgraph_flow.py</text>
-  <text x="285" y="770" class="small" text-anchor="middle">build_text2sql_graph()</text>
-  <rect x="560" y="690" width="850" height="130" class="node" />
-  <text x="985" y="728" class="label" text-anchor="middle">Graph Reuses Current Modules</text>
-  <text x="985" y="750" class="small" text-anchor="middle">agents: guardrails, router, sql, error, analysis, viz</text>
-  <text x="985" y="770" class="small" text-anchor="middle">helpers: execute_sql, sql_validator, sqlite, format_response, viz_plotly</text>
+  <rect x="334" y="560" width="1242" height="300" class="group"/>
+  <text x="354" y="588" class="label">Optional Graph Runtime</text>
+  <rect x="354" y="615" width="420" height="84" class="node"/>
+  <text x="564" y="650" class="label" text-anchor="middle">langgraph_flow.py</text>
+  <text x="564" y="670" class="small" text-anchor="middle">build_text2sql_graph()</text>
+  <rect x="804" y="615" width="740" height="180" class="node"/>
+  <text x="1174" y="650" class="label" text-anchor="middle">Reuses the same modules as sync pipeline</text>
+  <text x="1174" y="682" class="small" text-anchor="middle">Agents: guardrails, router, sql, error, analysis, viz</text>
+  <text x="1174" y="706" class="small" text-anchor="middle">Helpers: execute_sql, sql_validator, sqlite, format_response, viz_plotly</text>
 
   <!-- Edges -->
-  <path class="edge" d="M240 170 L540 170" />
-  <path class="edge" d="M440 170 L540 170" />
+  <path class="edge" d="M164 167 L164 185"/>
+  <path class="edge" d="M164 167 L164 262"/>
+  <path class="edge" d="M284 215 L334 210"/>
+  <path class="edge" d="M284 292 L334 210"/>
 
-  <path class="edge" d="M750 210 L750 330" />
-  <path class="edge" d="M750 210 L190 430" />
-  <path class="edge" d="M750 210 L1135 330" />
-  <path class="edge" d="M750 210 L1135 430" />
-  <path class="edge" d="M750 210 L1335 430" />
-  <path class="edge" d="M750 210 L1050 430" />
+  <path class="edge" d="M664 210 L720 141"/>
+  <path class="edge" d="M664 210 L720 208"/>
+  <path class="edge" d="M664 210 L720 275"/>
+  <path class="edge" d="M664 210 L720 342"/>
+  <path class="edge" d="M664 210 L720 409"/>
+  <path class="edge" d="M664 210 L1080 223"/>
+  <path class="edge" d="M664 210 L1080 300"/>
+  <path class="edge" d="M664 210 L1080 377"/>
+  <path class="edge" d="M664 210 L1328 377"/>
 
-  <path class="edge" d="M130 408 L470 430" />
-  <path class="edge" d="M130 408 L280 330" />
-  <path class="edge" d="M420 408 L760 430" />
-  <path class="edge" d="M560 408 L760 430" />
-  <path class="edge" d="M710 408 L760 430" />
-  <path class="edge" d="M870 408 L760 430" />
+  <path class="edge" d="M1010 141 L1080 145"/>
+  <path class="edge" d="M1010 141 L1328 145"/>
+  <path class="edge" d="M1010 208 L1328 223"/>
+  <path class="edge" d="M1010 275 L1328 223"/>
+  <path class="edge" d="M1010 342 L1328 223"/>
+  <path class="edge" d="M1010 409 L1328 223"/>
 
-  <path class="edge" d="M190 520 L1050 430" />
-  <path class="edge" d="M190 520 L1135 330" />
-  <path class="edge" d="M1135 408 L1240 370" />
+  <path class="edge" d="M1195 329 L1195 192"/>
+  <path class="edge" d="M1310 300 L1328 300"/>
 
-  <path class="edge" d="M285 790 L560 740" />
+  <path class="dash" d="M564 699 L804 660"/>
 </svg>
