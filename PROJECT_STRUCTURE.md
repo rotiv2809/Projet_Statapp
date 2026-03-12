@@ -1,6 +1,6 @@
 # Project Folder Guide
 
-This document explains the role of each main folder in the repository.
+This document explains the role of each main folder in the000 repository.
 
 ## `/app`
 Core application package.

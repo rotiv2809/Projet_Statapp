@@ -1,13 +1,11 @@
 from typing import Any, Dict
 from app.db.sqlite import get_schema_text
-
 from app.agents.sql_agent import SQLAgent
 from app.safety.sql_validator import validate_sql
 from app.pipeline.execute_sql import execute_sql
 from app.formatters.viz_plotly import infer_plotly
-
 from gatekeeper.gatekeeper import gatekeep
-
+0
 from app.formatters.format_response import format_response_dict
 def run_data_pipeline(db_path: str, question: str) -> Dict[str,Any]:
 
