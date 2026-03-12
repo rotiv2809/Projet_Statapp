@@ -48,7 +48,7 @@ This document provides an overview of the core functions, classes, and entry poi
 
 - **`GuardrailsAgent.evaluate(question: str) -> GatekeeperResult`**
   - Combines deterministic safety gating (`gatekeeper.gatekeep()`) with semantic routing (`route_message()`).
-  - Returns a `GatekeeperResult` with status: `OUT_OF_SCOPE`, `NEEDS CLARIFICATION`, or `READY_FOR_SQL`.
+  - Returns a `GatekeeperResult` with status: `OUT OF SCOPE`, `NEEDS CLARIFICATION`, or `READY_FOR_SQL`.
 
 ---
 

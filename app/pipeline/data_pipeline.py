@@ -40,7 +40,7 @@ def _get_clarifying_questions(gk: Any) -> List[str]:
         qs = getattr(gk, "resolved_clarifying_questions") or []
         if qs:
             return list(qs)
-    qs = getattr(gk, "clarifying_questions", None) or getattr(gk, "claryfing_questions", None) or []
+    qs = getattr(gk, "clarifying_questions", None) or []
     return list(qs)
 
 
@@ -58,7 +58,7 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
         return {
             "ok": False,
             "route": "OUT_OF_SCOPE",
-            "stage": "guardrail_agent",
+            "stage": "guardrails_agent",
             "status": gk.status,
             "reason": gk.parsed_intent,
             "message": "Request refused by safety policy.",
@@ -69,7 +69,7 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
         return {
             "ok": False,
             "route": "CLARIFY",
-            "stage": "guardrail_agent",
+            "stage": "guardrails_agent",
             "status": gk.status,
             "message": "Need clarification before querying the database.",
             "question": clarifying_questions[0] if clarifying_questions else "Could you clarify your request?",
