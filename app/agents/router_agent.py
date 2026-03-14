@@ -13,6 +13,8 @@ import re
 from dataclasses import dataclass
 from typing import Literal, Optional
 
+from gatekeeper.gatekeeper import is_unsafe_user_input
+
 Route = Literal["REFUSE", "CLARIFY", "DATA", "CHAT"]
 
 
@@ -41,10 +43,6 @@ RANKING_PATTERN = r"\b(top|best|worst|highest|lowest|meilleur|pire)\b"
 METRIC_HINTS = r"\b(montant|total|sum|count|nombre|avg|average|moyenne|max|min|spend|dépense|transactions?|dossiers?)\b"
 TIME_HINTS = r"\b(20\d{2}|mois|month|année|year|entre|from|to|depuis|avant|après)\b"
 
-REFUSE_PATTERN = r"\b(DELETE|DROP|UPDATE|INSERT|ALTER|ATTACH|DETACH|PRAGMA|CREATE|REPLACE|COPY|TRUNCATE)\b"
-INJECTION_PATTERN = r"(;|--|/\*|\*/)"
-
-
 def _contain_any(patterns: list[str], text: str) -> bool:
     return any(re.search(p, text, flags=re.IGNORECASE) for p in patterns)
 
@@ -54,8 +52,8 @@ def route_message(message: str) -> RouterDecision:
     if not q:
         return RouterDecision(route="REFUSE", reason="empty_message")
 
-    if re.search(REFUSE_PATTERN, q, flags=re.IGNORECASE) or re.search(INJECTION_PATTERN, q):
-        return RouterDecision(route="REFUSE", reason="destructive_or_injection")
+    if is_unsafe_user_input(q):
+        return RouterDecision(route="REFUSE", reason="unsafe_sql_or_injection")
 
     if re.search(RANKING_PATTERN, q, flags=re.IGNORECASE):
         need_metric = not re.search(METRIC_HINTS, q, flags=re.IGNORECASE)

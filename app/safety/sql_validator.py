@@ -23,7 +23,7 @@ def validate_sql(sql:str) -> Tuple[bool,str]:
         return False, "Multiple statements are not allowed."
     
     # Tokenize completion
-    upper = re.sub(r"[ˆA-Za-z0-9_]+", " ",s).upper().split()
+    upper = re.sub(r"[^A-Za-z0-9_]+", " ",s).upper().split()
     for kw in BLOCKED_KEYWORDS:
         if kw in upper:
             return False, f"Blocked keyword:{kw}"

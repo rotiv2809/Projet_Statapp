@@ -1,0 +1,54 @@
+flowchart TD
+    %% =========================
+    %% StatApp Report Diagram
+    %% =========================
+
+    U[User Question in Natural Language]
+
+    subgraph P1[Phase 1 — Safety and Intent Validation]
+      G[GuardrailsAgent]
+      GK[Gatekeeper Rules<br/>unsafe SQL / injection / PII request detection]
+      R[Router Rules<br/>DATA / CLARIFY / REFUSE / CHAT]
+      D1{Decision}
+      OOS[OUT_OF_SCOPE Response]
+      CL[CLARIFY Response<br/>ask for missing metric or time range]
+    end
+
+    subgraph P2[Phase 2 — SQL Synthesis and Controlled Execution]
+      S[SQLAgent<br/>Generate candidate SQL]
+      V[SQL Validator<br/>SELECT-only, single statement,<br/>blocked keywords, PII columns]
+      D2{Validation OK?}
+      X[execute_sql<br/>Read-only SQLite query]
+      D3{Execution OK?}
+      E[ErrorAgent<br/>Repair SQL using schema + error]
+      D4{Retry budget left?<br/>MAX_SQL_REPAIR_ATTEMPTS = 3}
+      ERR[ERROR Response<br/>failed after bounded repairs]
+    end
+
+    subgraph P3[Phase 3 — Result Interpretation]
+      F[format_response<br/>Table + preview + counts]
+      A[AnalysisAgent<br/>Natural-language summary]
+      Z[VizAgent<br/>LLM Plotly generation]
+      FB[viz_plotly fallback<br/>heuristic chart inference]
+      OUT[Final Payload<br/>answer_text + SQL + rows + viz]
+    end
+
+    U --> G
+    G --> GK
+    G --> R
+    G --> D1
+
+    D1 -->|OUT OF SCOPE / CHAT| OOS
+    D1 -->|NEEDS CLARIFICATION| CL
+    D1 -->|READY_FOR_SQL| S
+
+    S --> V --> D2
+    D2 -->|No| E --> D4
+    D4 -->|Yes| V
+    D4 -->|No| ERR
+
+    D2 -->|Yes| X --> D3
+    D3 -->|No| E
+    D3 -->|Yes| F --> A --> Z --> OUT
+
+    Z -->|if generation fails| FB --> OUT
