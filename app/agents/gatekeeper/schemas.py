@@ -1,0 +1,22 @@
+from typing import Any, Dict, List, Literal, Optional
+
+from pydantic import BaseModel, Field
+
+GateStatus = Literal["READY_FOR_SQL", "NEEDS CLARIFICATION", "OUT OF SCOPE"]
+
+
+class TimeRange(BaseModel):
+    kind: Literal["year", "date_range", "relative"]
+    value: str
+
+
+class GatekeeperResult(BaseModel):
+    status: GateStatus
+    parsed_intent: Optional[str] = None
+    metric: Optional[str] = None
+    dimensions: List[str] = Field(default_factory=list)
+    time_range: Optional[TimeRange] = None
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    missing_slots: List[str] = Field(default_factory=list)
+    clarifying_questions: List[str] = Field(default_factory=list)
+    notes: Optional[str] = None

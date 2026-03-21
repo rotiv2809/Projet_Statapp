@@ -36,10 +36,6 @@ class SQLAttemptTrace:
 
 
 def _get_clarifying_questions(gk: Any) -> List[str]:
-    if hasattr(gk, "resolved_clarifying_questions"):
-        qs = getattr(gk, "resolved_clarifying_questions") or []
-        if qs:
-            return list(qs)
     qs = getattr(gk, "clarifying_questions", None) or []
     return list(qs)
 
@@ -64,7 +60,7 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
             "message": "Request refused by safety policy.",
             "notes": gk.notes,
         }
-    if gk.status in {"NEED CLARIFICATION", "NEEDS CLARIFICATION"}:
+    if gk.status == "NEEDS CLARIFICATION":
         clarifying_questions = _get_clarifying_questions(gk)
         return {
             "ok": False,

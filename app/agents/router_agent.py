@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-from gatekeeper.gatekeeper import is_unsafe_user_input
+from app.agents.gatekeeper.gatekeeper import is_unsafe_user_input
 
 Route = Literal["REFUSE", "CLARIFY", "DATA", "CHAT"]
 

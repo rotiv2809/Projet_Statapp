@@ -26,4 +26,4 @@ def __getattr__(name: str) -> Any:
             "TimeRange": TimeRange,
         }
         return mapping[name]
-    raise AttributeError(f"module 'gatekeeper' has no attribute {name!r}")
+    raise AttributeError(f"module 'app.agents.gatekeeper' has no attribute {name!r}")

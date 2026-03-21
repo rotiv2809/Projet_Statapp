@@ -121,6 +121,11 @@ Projet_Statapp/
       agent_configs.py
       analysis_agent.py
       error_agent.py
+      gatekeeper/
+        __init__.py
+        gatekeeper.py
+        prompts.py
+        schemas.py
       guardrail_agent.py
       router_agent.py
       sql_agent.py
@@ -147,6 +152,7 @@ Projet_Statapp/
   gatekeeper/
     __init__.py
     gatekeeper.py
+    prompts.py
     schemas.py
   scripts/
     __init__.py

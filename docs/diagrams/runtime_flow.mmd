@@ -1,21 +1,103 @@
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'fontFamily': 'Trebuchet MS, Verdana, sans-serif',
+    'background': '#ffffff',
+    'primaryColor': '#F4E7D3',
+    'primaryTextColor': '#1E293B',
+    'primaryBorderColor': '#C27A2C',
+    'lineColor': '#475569',
+    'secondaryColor': '#E8F1E8',
+    'secondaryTextColor': '#163020',
+    'tertiaryColor': '#E7EEF7',
+    'tertiaryTextColor': '#1F3A5F'
+  }
+}}%%
+
 flowchart TD
-    Q[1. User question] --> SCHEMA[2. Load schema (sqlite.py)]
-    SCHEMA --> GR[3. GuardrailsAgent.evaluate]
+    U([User question])
+    ST[Streamlit UI]
+    CLI[CLI runner]
+    DB[(SQLite database)]
+    SCHEMA[Load schema text<br/>get_schema_text]
 
-    GR -->|OUT OF SCOPE| OOS[Return OUT_OF_SCOPE message]
-    GR -->|NEEDS CLARIFICATION| CLAR[Return CLARIFY question]
-    GR -->|READY_FOR_SQL| SQL[4. SQLAgent.generate_sql]
+    subgraph P0[Phase 0 - Entry Points]
+        IN[run_data_pipeline]
+    end
 
-    SQL --> VAL[5. validate_sql]
-    VAL -->|invalid| REPAIR[ErrorAgent.repair_sql]
-    VAL -->|valid| EXEC[6. execute_sql]
+    subgraph P1[Phase 1 - Context and Request Qualification]
+        G[GuardrailsAgent.evaluate]
+        GK[Gatekeeper<br/>unsafe SQL, injection, PII]
+        DSAFE{Input safe?}
+        R[Router<br/>DATA, CLARIFY, CHAT]
+        DINTENT{Action?}
+        OOS[[Return OUT_OF_SCOPE]]
+        CLARIFY[[Return CLARIFY question]]
+    end
 
-    EXEC -->|execution error| REPAIR
-    REPAIR --> RETRY{Retry left?}
-    RETRY -->|yes| VAL
-    RETRY -->|no| FAIL[Return ERROR (max retries)]
+    subgraph P2[Phase 2 - SQL Synthesis and Controlled Execution]
+        SQL[SQLAgent.generate_sql]
+        VAL[validate_sql]
+        DVAL{SQL valid?}
+        EXEC[execute_sql]
+        DEXEC{Execution succeeds?}
+        FIX[ErrorAgent.repair_sql]
+        DRETRY{Retry budget left?}
+        ERR[[Return ERROR]]
+    end
 
-    EXEC -->|success| FORMAT[7. format_response]
-    FORMAT --> ANALYSIS[8. AnalysisAgent.summarize]
-    ANALYSIS --> VIZ[9. VizAgent.generate\nfallback: viz_plotly]
-    VIZ --> DONE[10. Return final payload]
+    subgraph P3[Phase 3 - Response Composition]
+        FMT[format_response]
+        ANA[AnalysisAgent.summarize]
+        VIZ[VizAgent.generate]
+        FB[infer_plotly fallback]
+        OUT[[Final response payload]]
+    end
+
+    U --> ST --> IN
+    U --> CLI --> IN
+    IN --> DB
+    IN --> SCHEMA --> G
+    IN --> G
+
+    G --> GK --> DSAFE
+    DSAFE -->|No| OOS
+    DSAFE -->|Yes| R --> DINTENT
+
+    DINTENT -->|CHAT| OOS
+    DINTENT -->|CLARIFY| CLARIFY
+    DINTENT -->|DATA| SQL
+
+    SCHEMA -. schema context .-> SQL
+    SCHEMA -. schema context .-> FIX
+    DB -. read only query .-> EXEC
+
+    SQL --> VAL --> DVAL
+    DVAL -->|No| FIX --> DRETRY
+    DVAL -->|Yes| EXEC --> DEXEC
+    DEXEC -->|No| FIX
+    DEXEC -->|Yes| FMT --> ANA --> VIZ --> OUT
+
+    DRETRY -->|Yes| VAL
+    DRETRY -->|No| ERR
+    VIZ -. fallback if generation fails .-> FB --> OUT
+    OUT --> ST
+    OUT --> CLI
+
+    classDef entry fill:#FFF7ED,stroke:#C27A2C,color:#1E293B,stroke-width:2px;
+    classDef qualify fill:#F8FAFC,stroke:#4F6F8A,color:#1E293B,stroke-width:1.5px;
+    classDef execute fill:#F7FCEB,stroke:#7A9E3A,color:#243B18,stroke-width:1.5px;
+    classDef compose fill:#EEF4FF,stroke:#4C7CBF,color:#1F3A5F,stroke-width:1.5px;
+    classDef outcome fill:#FFF1F2,stroke:#C2415D,color:#881337,stroke-width:2px;
+    classDef decision fill:#FFFFFF,stroke:#475569,color:#1E293B,stroke-width:2px;
+    classDef data fill:#FFFBEB,stroke:#B7791F,color:#713F12,stroke-width:1.5px,stroke-dasharray: 4 3;
+    classDef runtime fill:#F5F3FF,stroke:#7C3AED,color:#3B0764,stroke-width:1.5px;
+
+    class U entry;
+    class ST,CLI,IN runtime;
+    class DB,SCHEMA data;
+    class G,GK,R qualify;
+    class SQL,VAL,EXEC,FIX execute;
+    class FMT,ANA,VIZ,FB compose;
+    class OOS,CLARIFY,ERR,OUT outcome;
+    class DSAFE,DINTENT,DVAL,DEXEC,DRETRY decision;

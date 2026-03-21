@@ -3,16 +3,15 @@ Guardrails orchestrator that combines deterministic policy and semantic routing.
 
 Connection in flow:
 - Upstream: instantiated by app/pipeline/data_pipeline.py and app/pipeline/langgraph_flow.py.
-- This file: merges gatekeeper.gatekeep() + router_agent.route_message().
+- This file: merges app.agents.gatekeeper.gatekeep() + router_agent.route_message().
 - Downstream: emits GatekeeperResult that decides OUT OF SCOPE / NEEDS CLARIFICATION / READY_FOR_SQL.
 """
 
 from __future__ import annotations
 
-from gatekeeper.gatekeeper import gatekeep
-from gatekeeper.schemas import GatekeeperResult
-
 from app.agents.agent_configs import AGENT_CONFIGS
+from app.agents.gatekeeper.gatekeeper import gatekeep
+from app.agents.gatekeeper.schemas import GatekeeperResult
 from app.agents.router_agent import route_message
 
 

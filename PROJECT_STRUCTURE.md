@@ -13,6 +13,11 @@ Projet_Statapp/
       agent_configs.py        # role + system prompt definitions for multi-agent flow
       analysis_agent.py       # NL explanation of SQL results
       error_agent.py          # SQL repair after validation/execution failures
+      gatekeeper/
+        __init__.py
+        gatekeeper.py         # user-input scope/safety checks
+        prompts.py
+        schemas.py
       guardrail_agent.py      # combines gatekeeper + router into one decision point
       router_agent.py         # route: REFUSE/CLARIFY/DATA/CHAT
       sql_agent.py            # SQL generation agent
@@ -36,9 +41,10 @@ Projet_Statapp/
     safety/
       __init__.py
       sql_validator.py        # SQL safety rules (SELECT-only + PII block)
-  gatekeeper/
+  gatekeeper/                # compatibility shims forwarding to app/agents/gatekeeper/
     __init__.py
-    gatekeeper.py             # user-input scope/safety checks
+    gatekeeper.py
+    prompts.py
     schemas.py
   scripts/
     __init__.py
@@ -67,6 +73,7 @@ Projet_Statapp/
 ## Folder responsibilities
 
 - `app/`: main application code.
-- `gatekeeper/`: input-scope and safety gating before SQL generation.
+- `app/agents/gatekeeper/`: input-scope and safety gating kept next to the agent layer.
+- `gatekeeper/`: compatibility wrappers for older imports.
 - `scripts/`: local build, sanity checks, and script-style tests.
 - `logs/`: generated artifacts.

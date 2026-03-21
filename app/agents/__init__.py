@@ -2,8 +2,6 @@
 
 from typing import Any
 
-from app.agents.router_agent import RouterDecision, route_message
-
 __all__ = [
     "AGENT_CONFIGS",
     "AnalysisAgent",
@@ -46,4 +44,12 @@ def __getattr__(name: str) -> Any:
         from app.agents.viz_agent import VizAgent
 
         return VizAgent
+    if name == "RouterDecision":
+        from app.agents.router_agent import RouterDecision
+
+        return RouterDecision
+    if name == "route_message":
+        from app.agents.router_agent import route_message
+
+        return route_message
     raise AttributeError(f"module 'app.agents' has no attribute {name!r}")

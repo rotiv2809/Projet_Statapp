@@ -76,12 +76,12 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             "schema_text": schema_text,
             "status": gk.status,
             "missing_slots": list(getattr(gk, "missing_slots", []) or []),
-            "clarifying_questions": list(getattr(gk, "resolved_clarifying_questions", []) or []),
+            "clarifying_questions": list(getattr(gk, "clarifying_questions", []) or []),
         }
         if gk.status == "OUT OF SCOPE":
             out["route"] = "OUT_OF_SCOPE"
             out["answer_text"] = "Request refused by safety policy."
-        elif gk.status in {"NEED CLARIFICATION", "NEEDS CLARIFICATION"}:
+        elif gk.status == "NEEDS CLARIFICATION":
             out["route"] = "CLARIFY"
             qs = out["clarifying_questions"]
             out["answer_text"] = qs[0] if qs else "Could you clarify your request?"

@@ -47,7 +47,7 @@ This document provides an overview of the core functions, classes, and entry poi
 ### `app/agents/guardrail_agent.py`
 
 - **`GuardrailsAgent.evaluate(question: str) -> GatekeeperResult`**
-  - Combines deterministic safety gating (`gatekeeper.gatekeep()`) with semantic routing (`route_message()`).
+  - Combines deterministic safety gating (`app.agents.gatekeeper.gatekeep()`) with semantic routing (`route_message()`).
   - Returns a `GatekeeperResult` with status: `OUT OF SCOPE`, `NEEDS CLARIFICATION`, or `READY_FOR_SQL`.
 
 ---
@@ -182,7 +182,7 @@ This document provides an overview of the core functions, classes, and entry poi
 
 ## 7) Gatekeeper (deterministic filtering before LLM)
 
-### `gatekeeper/gatekeeper.py`
+### `app/agents/gatekeeper/gatekeeper.py`
 
 - **`is_unsafe_user_input(q) -> bool`**
   - Detects SQL-like or injection-style user input (keywords & patterns).
@@ -191,7 +191,7 @@ This document provides an overview of the core functions, classes, and entry poi
   - Blocks queries containing SQL or PII requests.
   - Returns `GatekeeperResult(status=...)` used by `GuardrailsAgent`.
 
-### `gatekeeper/schemas.py`
+### `app/agents/gatekeeper/schemas.py`
 
 - **`GatekeeperResult`**
   - Pydantic model standardizing gatekeeper results (status, intent, slots, clarifying questions).
