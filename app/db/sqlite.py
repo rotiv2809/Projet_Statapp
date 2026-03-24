@@ -14,7 +14,7 @@ class DBConfig:
 
 def _connect(cfg: DBConfig) -> sqlite3.Connection:
     """
-    Connect to SQLite.
+    Connect to SQLite
     """
     path = cfg.sqlite_path.resolve()
 
