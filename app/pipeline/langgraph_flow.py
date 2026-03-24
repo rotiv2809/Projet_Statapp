@@ -84,8 +84,9 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
     Build a LangGraph workflow:
     context_resolver -> guardrails_agent -> sql_agent -> execute_sql
                                                          -> error_agent (retry)
-                                                         -> analysis_agent -> viz_agent
-    context_resolver can also short-circuit to viz_agent for follow-ups.
+                                                         -> analysis_agent -> END
+    context_resolver can short-circuit to viz_agent for explicit viz follow-ups,
+    or to END for blocked/viz_no_data routes.
     """
     guardrails_agent = GuardrailsAgent()
     sql_agent = SQLAgent()
@@ -223,6 +224,9 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             rows=rows,
             fallback_text=formatted["text"],
         )
+        # Append a plot suggestion so user knows they can ask for a chart
+        answer_text += "\n\n📊 *I can plot this data for you — just ask! (e.g. \"plot a bar chart\" or \"show me a pie chart\")*"
+
         return {
             "answer_text": answer_text,
             "answer_table": formatted["table"],
@@ -309,7 +313,7 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
         },
     )
     workflow.add_edge("error_agent", "execute_sql")
-    workflow.add_edge("analysis_agent", "viz_agent")
+    workflow.add_edge("analysis_agent", END)
     workflow.add_edge("viz_agent", END)
 
     return workflow

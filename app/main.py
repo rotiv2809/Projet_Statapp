@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 
 from app.pipeline import run_data_pipeline
 
-
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run StatApp Text2SQL pipeline once.")
     parser.add_argument("--db", default="data/statapp.sqlite", help="Path to SQLite database.")

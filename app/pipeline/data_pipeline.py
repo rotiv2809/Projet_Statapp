@@ -17,10 +17,8 @@ from app.agents.analysis_agent import AnalysisAgent
 from app.agents.error_agent import ErrorAgent
 from app.agents.guardrails.agent import GuardrailsAgent
 from app.agents.sql.agent import SQLAgent
-from app.agents.viz_agent import VizAgent
 from app.safety.sql_validator import validate_sql
 from app.pipeline.execute_sql import execute_sql
-from app.formatters.viz_plotly import infer_plotly
 
 from app.formatters.format_response import format_response_dict
 
@@ -46,7 +44,6 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
     sql_agent = SQLAgent()
     error_agent = ErrorAgent()
     analysis_agent = AnalysisAgent()
-    viz_agent = VizAgent()
 
     # Guardrails / scope check
     gk = guardrails_agent.evaluate(question)
@@ -77,8 +74,7 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
             "route": "CLARIFY",
             "stage": "guardrails_agent",
             "status": gk.status,
-            "message": "Need clarification before querying the database.",
-            "question": clarifying_questions[0] if clarifying_questions else "Could you clarify your request?",
+            "message": clarifying_questions[0] if clarifying_questions else "Could you clarify your request?",
             "clarifying_questions": clarifying_questions,
             "missing_slots": gk.missing_slots,
             "notes": gk.notes,
@@ -150,12 +146,7 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
         rows=rows,
         fallback_text=formatted["text"],
     )
-    viz = viz_agent.generate(
-        question=question,
-        columns=columns,
-        rows=rows,
-        fallback_viz=infer_plotly(question, columns, rows),
-    )
+    answer_text += "\n\n📊 *I can plot this data for you — just ask! (e.g. \"plot a bar chart\" or \"show me a pie chart\")*"
 
     return {
         "ok": True,
@@ -170,7 +161,6 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
         "preview_rows": formatted["preview_rows"],
         "preview_row_count": formatted["preview_row_count"],
         "total_rows": formatted["total_rows"],
-        "viz": viz,
         "attempts": [asdict(a) for a in attempts],
         "retry_count": max(0, len(attempts) - 1),
     }

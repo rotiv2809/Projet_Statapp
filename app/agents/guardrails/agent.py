@@ -4,7 +4,7 @@ Guardrails orchestrator that combines deterministic policy and semantic routing.
 Connection in flow:
 - Upstream: instantiated by app/pipeline/data_pipeline.py and app/pipeline/langgraph_flow.py.
 - This file: merges app.agents.guardrails.gatekeep() + router.route_message().
-- Downstream: emits GatekeeperResult that decides OUT OF SCOPE / NEEDS CLARIFICATION / READY_FOR_SQL.
+- Downstream: emits GatekeeperResult that decides OUT OF SCOPE / NEEDS CLARIFICATION / READY_FOR_SQL. ter
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ class GuardrailsAgent:
                 parsed_intent="non_data_chat",
                 clarifying_questions=[],
                 missing_slots=[],
-                notes="This assistant handles data-related analytics questions only.",
+                notes="I'm designed for data analytics questions about clients, transactions, and dossiers. Could you rephrase your question around those topics?",
             )
 
         return base
