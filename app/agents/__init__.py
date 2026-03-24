@@ -17,7 +17,7 @@ __all__ = [
 
 def __getattr__(name: str) -> Any:
     if name == "AGENT_CONFIGS":
-        from app.agents.agent_configs import AGENT_CONFIGS
+        from app.agents.shared.config import AGENT_CONFIGS
 
         return AGENT_CONFIGS
     if name == "AnalysisAgent":
@@ -29,15 +29,15 @@ def __getattr__(name: str) -> Any:
 
         return ErrorAgent
     if name == "GuardrailAgent":
-        from app.agents.guardrail_agent import GuardrailAgent
+        from app.agents.guardrails.agent import GuardrailAgent
 
         return GuardrailAgent
     if name == "GuardrailsAgent":
-        from app.agents.guardrail_agent import GuardrailsAgent
+        from app.agents.guardrails.agent import GuardrailsAgent
 
         return GuardrailsAgent
     if name == "SQLAgent":
-        from app.agents.sql_agent import SQLAgent
+        from app.agents.sql.agent import SQLAgent
 
         return SQLAgent
     if name == "VizAgent":
@@ -45,11 +45,11 @@ def __getattr__(name: str) -> Any:
 
         return VizAgent
     if name == "RouterDecision":
-        from app.agents.router_agent import RouterDecision
+        from app.agents.guardrails.router import RouterDecision
 
         return RouterDecision
     if name == "route_message":
-        from app.agents.router_agent import route_message
+        from app.agents.guardrails.router import route_message
 
         return route_message
     raise AttributeError(f"module 'app.agents' has no attribute {name!r}")

@@ -15,8 +15,8 @@ from app.db.sqlite import get_schema_text
 
 from app.agents.analysis_agent import AnalysisAgent
 from app.agents.error_agent import ErrorAgent
-from app.agents.guardrail_agent import GuardrailsAgent
-from app.agents.sql_agent import SQLAgent
+from app.agents.guardrails.agent import GuardrailsAgent
+from app.agents.sql.agent import SQLAgent
 from app.agents.viz_agent import VizAgent
 from app.safety.sql_validator import validate_sql
 from app.pipeline.execute_sql import execute_sql
@@ -51,6 +51,16 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
     # Guardrails / scope check
     gk = guardrails_agent.evaluate(question)
     if gk.status == "OUT OF SCOPE":
+        if gk.parsed_intent == "greeting":
+            return {
+                "ok": True,
+                "route": "CHAT",
+                "stage": "guardrails_agent",
+                "status": gk.status,
+                "reason": gk.parsed_intent,
+                "message": gk.notes or "Hello!",
+                "notes": gk.notes,
+            }
         return {
             "ok": False,
             "route": "OUT_OF_SCOPE",

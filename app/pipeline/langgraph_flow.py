@@ -13,8 +13,8 @@ from typing import Any, Dict, List, Optional, TypedDict
 
 from app.agents.analysis_agent import AnalysisAgent
 from app.agents.error_agent import ErrorAgent
-from app.agents.guardrail_agent import GuardrailsAgent
-from app.agents.sql_agent import SQLAgent
+from app.agents.guardrails.agent import GuardrailsAgent
+from app.agents.sql.agent import SQLAgent
 from app.agents.viz_agent import VizAgent
 from app.db.sqlite import get_schema_text
 from app.formatters.format_response import format_response_dict
@@ -79,8 +79,12 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             "clarifying_questions": list(getattr(gk, "clarifying_questions", []) or []),
         }
         if gk.status == "OUT OF SCOPE":
-            out["route"] = "OUT_OF_SCOPE"
-            out["answer_text"] = "Request refused by safety policy."
+            if getattr(gk, "parsed_intent", "") == "greeting":
+                out["route"] = "CHAT"
+                out["answer_text"] = getattr(gk, "notes", "") or "Hello!"
+            else:
+                out["route"] = "OUT_OF_SCOPE"
+                out["answer_text"] = "Request refused by safety policy."
         elif gk.status == "NEEDS CLARIFICATION":
             out["route"] = "CLARIFY"
             qs = out["clarifying_questions"]

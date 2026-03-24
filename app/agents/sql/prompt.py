@@ -1,6 +1,4 @@
-# app/agents/sql_prompt.py
-
-from app.agents.agent_configs import AGENT_CONFIGS
+from app.agents.shared.config import AGENT_CONFIGS
 
 SQL_SYSTEM_PROMPT = AGENT_CONFIGS["sql_agent"]["system_prompt"] + """
 

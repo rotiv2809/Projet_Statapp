@@ -26,14 +26,14 @@ This document provides an overview of the core functions, classes, and entry poi
 
 ## 2) Agents (LLM pipeline + safety)
 
-### `app/agents/agent_configs.py`
+### `app/agents/shared/config.py`
 
 - **`AGENT_CONFIGS`**
   - Dictionary of system prompts/roles for each agent (guardrail, sql, analysis, viz, error).
 
 ---
 
-### `app/agents/router_agent.py`
+### `app/agents/guardrails/router.py`
 
 - **`route_message(message: str) -> RouterDecision`**
   - Classifies user intent into `REFUSE`, `CLARIFY`, `DATA`, or `CHAT`.
@@ -44,15 +44,15 @@ This document provides an overview of the core functions, classes, and entry poi
 
 ---
 
-### `app/agents/guardrail_agent.py`
+### `app/agents/guardrails/agent.py`
 
 - **`GuardrailsAgent.evaluate(question: str) -> GatekeeperResult`**
-  - Combines deterministic safety gating (`app.agents.gatekeeper.gatekeep()`) with semantic routing (`route_message()`).
+  - Combines deterministic safety gating (`app.agents.guardrails.gatekeep()`) with semantic routing (`route_message()`).
   - Returns a `GatekeeperResult` with status: `OUT OF SCOPE`, `NEEDS CLARIFICATION`, or `READY_FOR_SQL`.
 
 ---
 
-### `app/agents/sql_agent.py`
+### `app/agents/sql/agent.py`
 
 - **`SQLAgent.generate_sql(question: str, schema_text: str) -> str`**
   - Uses an LLM to convert a natural-language question into a valid `SELECT` SQL query.
@@ -182,7 +182,7 @@ This document provides an overview of the core functions, classes, and entry poi
 
 ## 7) Gatekeeper (deterministic filtering before LLM)
 
-### `app/agents/gatekeeper/gatekeeper.py`
+### `app/agents/guardrails/gatekeeper.py`
 
 - **`is_unsafe_user_input(q) -> bool`**
   - Detects SQL-like or injection-style user input (keywords & patterns).
@@ -191,7 +191,7 @@ This document provides an overview of the core functions, classes, and entry poi
   - Blocks queries containing SQL or PII requests.
   - Returns `GatekeeperResult(status=...)` used by `GuardrailsAgent`.
 
-### `app/agents/gatekeeper/schemas.py`
+### `app/agents/guardrails/schemas.py`
 
 - **`GatekeeperResult`**
   - Pydantic model standardizing gatekeeper results (status, intent, slots, clarifying questions).

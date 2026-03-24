@@ -10,8 +10,24 @@ import plotly.graph_objects as go
 from app.pipeline.data_pipeline import run_data_pipeline as run_pipeline
 
 load_dotenv()
+
+
 def _msg_id(m: dict) -> str:
     return str(m.get("id") or "noid")
+
+
+def _is_likely_clarification_reply(text: str) -> bool:
+    q = (text or "").strip()
+    if not q:
+        return False
+    tokens = q.split()
+    if len(tokens) <= 5:
+        return True
+    if q.isdigit() and len(q) == 4:
+        return True
+    if any(k in q.lower() for k in ["202", "count", "amount", "avg", "sum", "transactions", "dossiers"]):
+        return True
+    return False
 
 
 def render_plotly(viz: dict, key: str):
@@ -76,10 +92,13 @@ def main():
     # Session history init
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    if "pending_clarification" not in st.session_state:
+        st.session_state.pending_clarification = None
 
     # Sidebar actions
     if st.sidebar.button("Clear chat"):
         st.session_state.messages = []
+        st.session_state.pending_clarification = None
         st.rerun()
 
     if st.sidebar.checkbox("Show session history (raw)", value=False):
@@ -104,9 +123,16 @@ def main():
     with st.chat_message("user"):
         st.markdown(user_q)
 
+    pending = st.session_state.pending_clarification
+    effective_question = user_q
+    if pending and _is_likely_clarification_reply(user_q):
+        base_question = pending.get("base_question", "")
+        if base_question:
+            effective_question = f"{base_question}\n\nClarification from user: {user_q}"
+
     # Run pipeline
     try:
-        res = run_pipeline(db_path, user_q)
+        res = run_pipeline(db_path, effective_question)
         if res is None:
             res = {"ok": False, "route": "ERROR", "message": "Pipeline returned None."}
     except Exception as e:
@@ -114,6 +140,16 @@ def main():
 
     route = res.get("route")
     ok = res.get("ok", True)
+
+    # Update clarification memory
+    if ok is False and route == "CLARIFY":
+        st.session_state.pending_clarification = {
+            "base_question": pending.get("base_question", user_q) if pending else user_q,
+            "missing_slots": res.get("missing_slots", []),
+            "clarifying_questions": res.get("clarifying_questions", []),
+        }
+    elif route in {"DATA", "OUT_OF_SCOPE", "ERROR", "CHAT"}:
+        st.session_state.pending_clarification = None
 
     # Decide assistant text
     if ok is False and route == "CLARIFY":
@@ -142,6 +178,8 @@ def main():
             "stage": res.get("stage"),
             "ok": ok,
             "row_count": res.get("row_count"),
+            "effective_question": effective_question,
+            "pending_clarification": st.session_state.pending_clarification,
         }
 
     # Render assistant 

@@ -1,6 +1,6 @@
 from app.db.sqlite import get_schema_text
-from app.agents.gatekeeper.gatekeeper import gatekeep
-from app.agents.sql_agent import SQLAgent
+from app.agents.guardrails.gatekeeper import gatekeep
+from app.agents.sql.agent import SQLAgent
 from app.pipeline.execute_sql import execute_sql
 from dotenv import load_dotenv
 load_dotenv()

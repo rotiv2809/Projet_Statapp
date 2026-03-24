@@ -42,15 +42,15 @@ Update rule:
 | `max_rows` default | `app/pipeline/execute_sql.py` | `200` | Caps returned rows per execution (also used by UI preview). |
 | `BLOCKED_KEYWORDS` | `app/safety/sql_validator.py` | destructive SQL keywords | Enforce read-only behavior. |
 | `PII_COLUMNS` | `app/safety/sql_validator.py`, `app/formatters/format_response.py`, `app/formatters/viz_plotly.py` | `nom`, `prenom`, `date_naissance` | Prevent PII exposure in query and visualization output. |
-| `FORBIDDEN_INPUT_PATTERNS` | `app/agents/gatekeeper/gatekeeper.py` | SQL/injection patterns | Reject unsafe user input before SQL generation. |
-| `SQL_LIKE_START` | `app/agents/gatekeeper/gatekeeper.py` | Regex | Prevent users from entering raw SQL. |
-| `PII_PATTERN` | `app/agents/gatekeeper/gatekeeper.py` | Regex | Prevent users from requesting PII at the prompt level. |
+| `FORBIDDEN_INPUT_PATTERNS` | `app/agents/guardrails/gatekeeper.py` | SQL/injection patterns | Reject unsafe user input before SQL generation. |
+| `SQL_LIKE_START` | `app/agents/guardrails/gatekeeper.py` | Regex | Prevent users from entering raw SQL. |
+| `PII_PATTERN` | `app/agents/guardrails/gatekeeper.py` | Regex | Prevent users from requesting PII at the prompt level. |
 
 ---
 
 ## 3) Agent configuration registry
 
-**Source of truth:** `app/agents/agent_configs.py`
+**Source of truth:** `app/agents/shared/config.py`
 
 Why it exists:
 - Keeps prompts & roles consistent across all agents.
@@ -70,7 +70,7 @@ Registered agents:
 | Area | Primary file | Related files |
 |---|---|---|
 | LLM provider/model/temperature | `app/llm/factory.py` | `.env`, `.env.example`, all LLM-based agents |
-| Input guardrails | `app/agents/gatekeeper/gatekeeper.py` | `app/agents/gatekeeper/schemas.py`, `app/agents/guardrail_agent.py`, `app/agents/router_agent.py` |
+| Input guardrails | `app/agents/guardrails/gatekeeper.py` | `app/agents/guardrails/schemas.py`, `app/agents/guardrails/agent.py`, `app/agents/guardrails/router.py` |
 | SQL output safety | `app/safety/sql_validator.py` | `app/pipeline/execute_sql.py`, `app/pipeline/data_pipeline.py` |
 | Retry behavior (SQL repair) | `app/pipeline/data_pipeline.py` | `app/agents/error_agent.py` |
 | UI runtime defaults | `streamlit_app.py` | `.env`, `.env.example` |

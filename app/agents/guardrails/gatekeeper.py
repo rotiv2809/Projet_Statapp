@@ -1,6 +1,6 @@
 import re
 
-from app.agents.gatekeeper.schemas import GatekeeperResult
+from app.agents.guardrails.schemas import GatekeeperResult
 
 FORBIDDEN_INPUT_PATTERNS = [
     r";", r"--", r"/\*", r"\*/",

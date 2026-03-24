@@ -10,19 +10,23 @@ Projet_Statapp/
     main.py                   # CLI entrypoint (single pipeline run)
     agents/
       __init__.py
-      agent_configs.py        # role + system prompt definitions for multi-agent flow
       analysis_agent.py       # NL explanation of SQL results
       error_agent.py          # SQL repair after validation/execution failures
-      gatekeeper/
+      guardrails/
         __init__.py
+        agent.py              # combines gatekeeper + router into one decision point
         gatekeeper.py         # user-input scope/safety checks
         prompts.py
+        router.py             # route: REFUSE/CLARIFY/DATA/CHAT
         schemas.py
-      guardrail_agent.py      # combines gatekeeper + router into one decision point
-      router_agent.py         # route: REFUSE/CLARIFY/DATA/CHAT
-      sql_agent.py            # SQL generation agent
+      shared/
+        __init__.py
+        config.py             # role + system prompt definitions for multi-agent flow
+      sql/
+        __init__.py
+        agent.py              # SQL generation agent
+        prompt.py             # SQL generation system prompt
       viz_agent.py            # LLM-driven Plotly code generation (with fallback)
-      sql_prompt.py           # SQL generation system prompt
     db/
       __init__.py
       sqlite.py               # schema extraction + query execution helpers
@@ -41,11 +45,6 @@ Projet_Statapp/
     safety/
       __init__.py
       sql_validator.py        # SQL safety rules (SELECT-only + PII block)
-  gatekeeper/                # compatibility shims forwarding to app/agents/gatekeeper/
-    __init__.py
-    gatekeeper.py
-    prompts.py
-    schemas.py
   scripts/
     __init__.py
     build_sqlite_db.py
@@ -73,7 +72,8 @@ Projet_Statapp/
 ## Folder responsibilities
 
 - `app/`: main application code.
-- `app/agents/gatekeeper/`: input-scope and safety gating kept next to the agent layer.
-- `gatekeeper/`: compatibility wrappers for older imports.
+- `app/agents/guardrails/`: safety gating, routing, and guardrails orchestration.
+- `app/agents/shared/`: shared agent configuration.
+- `app/agents/sql/`: SQL generation prompt + implementation.
 - `scripts/`: local build, sanity checks, and script-style tests.
 - `logs/`: generated artifacts.

@@ -14,7 +14,7 @@ import re
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
-from app.agents.agent_configs import AGENT_CONFIGS
+from app.agents.shared.config import AGENT_CONFIGS
 from app.llm.factory import get_llm
 
 _CODE_FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*|\s*```$", re.MULTILINE)

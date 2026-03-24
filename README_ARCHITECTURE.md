@@ -34,7 +34,7 @@ It uses a multi-agent architecture with 5 main agents:
 - `analysis_agent`
 - `viz_agent`
 
-The canonical prompt/role registry is in `app/agents/agent_configs.py`.
+The canonical prompt/role registry is in `app/agents/shared/config.py`.
 
 ## 2. Entry Points
 
@@ -120,11 +120,11 @@ graph = build_text2sql_graph()
 
 ### `guardrails_agent`
 
-File: `app/agents/guardrail_agent.py`
+File: `app/agents/guardrails/agent.py`
 
 - Combines:
-  - hard safety gate (`app/agents/gatekeeper/gatekeeper.py`),
-  - semantic router (`app/agents/router_agent.py`).
+  - hard safety gate (`app/agents/guardrails/gatekeeper.py`),
+  - semantic router (`app/agents/guardrails/router.py`).
 - Returns `GatekeeperResult` with statuses:
   - `READY_FOR_SQL`
   - `NEEDS CLARIFICATION`
@@ -132,10 +132,10 @@ File: `app/agents/guardrail_agent.py`
 
 ### `sql_agent`
 
-File: `app/agents/sql_agent.py`
+File: `app/agents/sql/agent.py`
 
 - Converts question + schema -> SQLite `SELECT` query.
-- Uses prompt from `app/agents/sql_prompt.py`.
+- Uses prompt from `app/agents/sql/prompt.py`.
 
 ### `error_agent`
 
@@ -162,7 +162,7 @@ File: `app/agents/viz_agent.py`
 
 ### Layer A: User-input safety
 
-File: `app/agents/gatekeeper/gatekeeper.py`
+File: `app/agents/guardrails/gatekeeper.py`
 
 - Blocks SQL-like input and injection markers.
 - Blocks PII requests (`nom`, `prenom`, `date_naissance`).
@@ -186,7 +186,7 @@ File: `app/db/sqlite.py`
 
 ### Gatekeeper contract
 
-File: `app/agents/gatekeeper/schemas.py`
+File: `app/agents/guardrails/schemas.py`
 
 Key model: `GatekeeperResult`
 
@@ -216,15 +216,15 @@ From `run_data_pipeline(...)`, common keys:
 | `app/main.py` | CLI runner | terminal | `app.pipeline.run_data_pipeline` |
 | `app/pipeline/data_pipeline.py` | sync orchestration | UI + CLI | all agents, validator, execute, formatters |
 | `app/pipeline/langgraph_flow.py` | LangGraph orchestration | `app.pipeline.build_text2sql_graph` | same agents + validation/execute/format |
-| `app/agents/agent_configs.py` | agent role/prompt registry | all agents | none |
-| `app/agents/guardrail_agent.py` | guardrail orchestration | pipelines | `app.agents.gatekeeper.gatekeep`, `router_agent.route_message` |
-| `app/agents/router_agent.py` | semantic route detection | `guardrail_agent` | regex rules only |
-| `app/agents/sql_agent.py` | SQL generation | pipelines | `llm.factory.get_llm`, prompt template |
+| `app/agents/shared/config.py` | agent role/prompt registry | all agents | none |
+| `app/agents/guardrails/agent.py` | guardrail orchestration | pipelines | `app.agents.guardrails.gatekeep`, `router.route_message` |
+| `app/agents/guardrails/router.py` | semantic route detection | `guardrails/agent.py` | regex rules only |
+| `app/agents/sql/agent.py` | SQL generation | pipelines | `llm.factory.get_llm`, prompt template |
 | `app/agents/error_agent.py` | SQL repair | pipelines | `llm.factory.get_llm`, prompt template |
 | `app/agents/analysis_agent.py` | NL summary | pipelines | `llm.factory.get_llm` |
 | `app/agents/viz_agent.py` | LLM chart generation | pipelines | `llm.factory.get_llm`, Plotly |
-| `app/agents/gatekeeper/gatekeeper.py` | hard input safety | `guardrail_agent` | `app.agents.gatekeeper.schemas`, regex checks |
-| `app/agents/gatekeeper/schemas.py` | gatekeeper result model | gatekeeper + guardrails | Pydantic |
+| `app/agents/guardrails/gatekeeper.py` | hard input safety | `guardrails/agent.py` | `app.agents.guardrails.schemas`, regex checks |
+| `app/agents/guardrails/schemas.py` | gatekeeper result model | gatekeeper + guardrails | Pydantic |
 | `app/safety/sql_validator.py` | SQL safety checks | pipelines + execute_sql wrapper | regex/token checks |
 | `app/pipeline/execute_sql.py` | validate + execute SQL | pipelines | `db.run_query`, `sql_validator` |
 | `app/db/sqlite.py` | schema + DB access | pipelines + scripts | sqlite3 |
@@ -272,5 +272,5 @@ For question: `"Top 10 communes by number of clients in 2024"`
 ## 12. Notes for Further Evolution
 
 - If you fully switch to LangGraph runtime, you can make `streamlit_app.py` call graph execution directly.
-- `app/agents/gatekeeper/gatekeeper.py` is currently deterministic (regex-based). If you later add LLM slot-filling, keep `GatekeeperResult` as the stable output contract.
+- `app/agents/guardrails/gatekeeper.py` is currently deterministic (regex-based). If you later add LLM slot-filling, keep `GatekeeperResult` as the stable output contract.
 - Keep `agent_configs.py` as the single source of truth for agent roles/prompts.

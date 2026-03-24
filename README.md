@@ -99,7 +99,7 @@ print(validate_sql('SELECT client_id, commune FROM clients LIMIT 1'));"
 Testing chatbot
 ```
  python -c "from app.db.sqlite import get_schema_text; \
-from app.agents.sql_agent import SQLAgent; \
+ from app.agents.sql.agent import SQLAgent; \
 from app.safety.sql_validator import validate_sql; \
 from app.pipeline.execute_sql import execute_sql; \
 schema = get_schema_text('data/statapp.sqlite'); \
@@ -118,18 +118,22 @@ Projet_Statapp/
     main.py
     agents/
       __init__.py
-      agent_configs.py
       analysis_agent.py
       error_agent.py
-      gatekeeper/
+      guardrails/
         __init__.py
+        agent.py
         gatekeeper.py
         prompts.py
         schemas.py
-      guardrail_agent.py
-      router_agent.py
-      sql_agent.py
-      sql_prompt.py
+        router.py
+      shared/
+        __init__.py
+        config.py
+      sql/
+        __init__.py
+        agent.py
+        prompt.py
       viz_agent.py
     db/
       __init__.py
@@ -149,11 +153,6 @@ Projet_Statapp/
     safety/
       __init__.py
       sql_validator.py
-  gatekeeper/
-    __init__.py
-    gatekeeper.py
-    prompts.py
-    schemas.py
   scripts/
     __init__.py
     build_sqlite_db.py

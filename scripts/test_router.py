@@ -1,4 +1,4 @@
-from app.agents.router_agent import route_message
+from app.agents.guardrails.router import route_message
 
 tests = [
     "Delete all transaction from 2024",

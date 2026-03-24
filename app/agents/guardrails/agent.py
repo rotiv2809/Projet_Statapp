@@ -3,16 +3,16 @@ Guardrails orchestrator that combines deterministic policy and semantic routing.
 
 Connection in flow:
 - Upstream: instantiated by app/pipeline/data_pipeline.py and app/pipeline/langgraph_flow.py.
-- This file: merges app.agents.gatekeeper.gatekeep() + router_agent.route_message().
+- This file: merges app.agents.guardrails.gatekeep() + router.route_message().
 - Downstream: emits GatekeeperResult that decides OUT OF SCOPE / NEEDS CLARIFICATION / READY_FOR_SQL.
 """
 
 from __future__ import annotations
 
-from app.agents.agent_configs import AGENT_CONFIGS
-from app.agents.gatekeeper.gatekeeper import gatekeep
-from app.agents.gatekeeper.schemas import GatekeeperResult
-from app.agents.router_agent import route_message
+from app.agents.guardrails.gatekeeper import gatekeep
+from app.agents.guardrails.router import route_message
+from app.agents.guardrails.schemas import GatekeeperResult
+from app.agents.shared.config import AGENT_CONFIGS
 
 
 def _missing_slots_from_reason(reason: str) -> list[str]:
@@ -61,6 +61,14 @@ class GuardrailsAgent:
             )
 
         if decision.route == "CHAT":
+            if decision.reason == "greeting":
+                return GatekeeperResult(
+                    status="OUT OF SCOPE",
+                    parsed_intent="greeting",
+                    clarifying_questions=[],
+                    missing_slots=[],
+                    notes="Hello! I can help you query data. Try asking something like: 'Top 10 communes by number of clients in 2024'.",
+                )
             return GatekeeperResult(
                 status="OUT OF SCOPE",
                 parsed_intent="non_data_chat",

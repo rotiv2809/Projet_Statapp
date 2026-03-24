@@ -14,7 +14,7 @@ from typing import Any, Sequence
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
-from app.agents.agent_configs import AGENT_CONFIGS
+from app.agents.shared.config import AGENT_CONFIGS
 from app.llm.factory import get_llm
 
 

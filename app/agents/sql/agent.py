@@ -10,17 +10,19 @@ Connection in flow:
 from __future__ import annotations
 
 import re
-from app.llm.factory import get_llm
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
 
-from app.agents.agent_configs import AGENT_CONFIGS
-from app.agents.sql_prompt import SQL_SYSTEM_PROMPT
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+
+from app.agents.shared.config import AGENT_CONFIGS
+from app.agents.sql.prompt import SQL_SYSTEM_PROMPT
+from app.llm.factory import get_llm
 
 _CODE_FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*|\s*```$", re.MULTILINE)
 
-def _clean_sql(text:str) ->str:
-    if not text: 
+
+def _clean_sql(text: str) -> str:
+    if not text:
         return ""
     s = re.sub(_CODE_FENCE_RE, "", text).strip()
     lines = []
@@ -30,9 +32,11 @@ def _clean_sql(text:str) ->str:
         lines.append(line)
     s = "\n".join(lines).strip()
     if s.endswith(";"):
-        s = s[:-1].rstrip() 
-    return s 
-class SQLAgent: 
+        s = s[:-1].rstrip()
+    return s
+
+
+class SQLAgent:
     def __init__(self):
         cfg = AGENT_CONFIGS["sql_agent"]
         self.role = cfg["role"]
@@ -40,12 +44,12 @@ class SQLAgent:
         self.llm = get_llm()
         self.generate_prompt = ChatPromptTemplate.from_messages([
             ("system", SQL_SYSTEM_PROMPT),
-            ("human", "SCHEMA:\n{schema}\n\nUSER QUESTION:\n{question}\n\nSQL:")
-            ])
+            ("human", "SCHEMA:\n{schema}\n\nUSER QUESTION:\n{question}\n\nSQL:"),
+        ])
         self.generate_chain = self.generate_prompt | self.llm | StrOutputParser()
-        
-    def generate_sql(self, question: str, schema_text: str ) -> str:
-        raw = self.generate_chain.invoke({"question": question, "schema":schema_text})
+
+    def generate_sql(self, question: str, schema_text: str) -> str:
+        raw = self.generate_chain.invoke({"question": question, "schema": schema_text})
         sql = _clean_sql(raw)
         if not sql:
             raise RuntimeError("Empty SQL from model")

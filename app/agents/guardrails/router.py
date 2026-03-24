@@ -2,7 +2,7 @@
 Lightweight semantic router for user intent classification.
 
 Connection in flow:
-- Upstream: called by app/agents/guardrail_agent.py after hard safety passes.
+- Upstream: called by app/agents/guardrails/agent.py after hard safety passes.
 - This file: classifies message as REFUSE, CLARIFY, DATA, or CHAT.
 - Downstream: GuardrailsAgent converts RouterDecision into GatekeeperResult.
 """
@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-from app.agents.gatekeeper.gatekeeper import is_unsafe_user_input
+from app.agents.guardrails.gatekeeper import is_unsafe_user_input
 
 Route = Literal["REFUSE", "CLARIFY", "DATA", "CHAT"]
 
@@ -42,9 +42,30 @@ DATA_HINTS = [
 RANKING_PATTERN = r"\b(top|best|worst|highest|lowest|meilleur|pire)\b"
 METRIC_HINTS = r"\b(montant|total|sum|count|nombre|avg|average|moyenne|max|min|spend|dépense|transactions?|dossiers?)\b"
 TIME_HINTS = r"\b(20\d{2}|mois|month|année|year|entre|from|to|depuis|avant|après)\b"
+GREETING_WORDS = {
+    "hello",
+    "hi",
+    "hey",
+    "bonjour",
+    "salut",
+    "yo",
+    "goodmorning",
+    "goodevening",
+}
+
 
 def _contain_any(patterns: list[str], text: str) -> bool:
     return any(re.search(p, text, flags=re.IGNORECASE) for p in patterns)
+
+
+def _is_greeting_message(text: str) -> bool:
+    cleaned = re.sub(r"[^a-zA-Z]", " ", (text or "").lower())
+    tokens = [t for t in cleaned.split() if t]
+    if not tokens:
+        return False
+    if len(tokens) > 4:
+        return False
+    return all(t in GREETING_WORDS for t in tokens)
 
 
 def route_message(message: str) -> RouterDecision:
@@ -54,6 +75,9 @@ def route_message(message: str) -> RouterDecision:
 
     if is_unsafe_user_input(q):
         return RouterDecision(route="REFUSE", reason="unsafe_sql_or_injection")
+
+    if _is_greeting_message(q):
+        return RouterDecision(route="CHAT", reason="greeting")
 
     if re.search(RANKING_PATTERN, q, flags=re.IGNORECASE):
         need_metric = not re.search(METRIC_HINTS, q, flags=re.IGNORECASE)
