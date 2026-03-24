@@ -9,6 +9,8 @@ Connection in flow:
 
 from __future__ import annotations
 
+import random
+
 from app.agents.guardrails.gatekeeper import gatekeep
 from app.agents.guardrails.router import route_message
 from app.agents.guardrails.schemas import GatekeeperResult
@@ -67,7 +69,11 @@ class GuardrailsAgent:
                     parsed_intent="greeting",
                     clarifying_questions=[],
                     missing_slots=[],
-                    notes="Hello! I can help you query data. Try asking something like: 'Top 10 communes by number of clients in 2024'.",
+                    notes=random.choice([
+                        "Hey! I'm your data assistant. Try asking: 'Top 10 communes by total amount in 2024'.",
+                        "Hello! I can help you explore your data. For example: 'How many clients per segment in 2024?'",
+                        "Hi there! Ask me anything about your clients, transactions, or dossiers. Example: 'Top 10 communes by number of transactions in 2024'.",
+                    ]),
                 )
             return GatekeeperResult(
                 status="OUT OF SCOPE",

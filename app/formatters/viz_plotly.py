@@ -7,7 +7,7 @@ DATE_NAME_HINT = re.compile(r"(date|time|month|year)", re.I)
 ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 ISO_MONTH = re.compile(r"^\d{4}-\d{2}$")
 
-PIE_HINT = re.compile(r"\b(share|proportion|percentage|percent|part)\b", re.I)
+PIE_HINT = re.compile(r"\b(pie|share|proportion|percentage|percent|part)\b", re.I)
 
 def _is_number(x: Any) -> bool:
     return isinstance(x, (int, float)) and x is not True and x is not False
@@ -52,9 +52,10 @@ def infer_plotly(question: str, columns: Sequence[str], rows: Any, max_points: i
     x_is_numeric = _is_number(xs[0])
 
     # PIE chart
-    if PIE_HINT.search(question or "") and len(xs) <= 10 and all((v is None or v >= 0) for v in ys):
+    if PIE_HINT.search(question or "") and len(xs) <= 10:
+        abs_ys = [abs(v) if _is_number(v) else v for v in ys]
         fig = {
-            "data": [{"type": "pie", "labels": xs, "values": ys}],
+            "data": [{"type": "pie", "labels": xs, "values": abs_ys}],
             "layout": {"title": f"Share of {ycol} by {xcol}"},
         }
         return {"type": "plotly", "figure": fig}

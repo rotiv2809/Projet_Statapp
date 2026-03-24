@@ -7,7 +7,7 @@ import pandas as pd
 from dotenv import load_dotenv
 import plotly.graph_objects as go
 
-from app.pipeline.data_pipeline import run_data_pipeline as run_pipeline
+from app.pipeline.langgraph_flow import get_graph_app
 
 load_dotenv()
 
@@ -16,22 +16,8 @@ def _msg_id(m: dict) -> str:
     return str(m.get("id") or "noid")
 
 
-def _is_likely_clarification_reply(text: str) -> bool:
-    q = (text or "").strip()
-    if not q:
-        return False
-    tokens = q.split()
-    if len(tokens) <= 5:
-        return True
-    if q.isdigit() and len(q) == 4:
-        return True
-    if any(k in q.lower() for k in ["202", "count", "amount", "avg", "sum", "transactions", "dossiers"]):
-        return True
-    return False
-
-
 def render_plotly(viz: dict, key: str):
-    """Render Plotly dict produced by your pipeline"""
+    """Render Plotly dict produced by the pipeline."""
     if not viz or viz.get("type") != "plotly":
         return
     fig_dict = viz.get("figure", {})
@@ -39,7 +25,7 @@ def render_plotly(viz: dict, key: str):
         fig = go.Figure(fig_dict)
         st.plotly_chart(fig, use_container_width=True, key=key)
     except Exception as e:
-        st.warning(f"Could not render Plotly figure: {type(e).__name__}: {e}")
+        st.warning("Could not render Plotly figure: {}: {}".format(type(e).__name__, e))
 
 
 def render_assistant_payload(m: dict, show_debug: bool):
@@ -64,17 +50,28 @@ def render_assistant_payload(m: dict, show_debug: bool):
             data=csv,
             file_name="result.csv",
             mime="text/csv",
-            key=f"dl_{mid}",
+            key="dl_{}".format(mid),
         )
 
     # Viz
     if m.get("viz"):
-        render_plotly(m["viz"], key=f"plt_{mid}")
+        render_plotly(m["viz"], key="plt_{}".format(mid))
 
     # Debug
     if show_debug and m.get("debug"):
         with st.expander("Debug"):
             st.json(m["debug"])
+
+
+def _get_prior_state(graph_app, config: dict) -> dict:
+    """Read the previous turn's final state from the LangGraph checkpoint."""
+    try:
+        snapshot = graph_app.get_state(config)
+        if snapshot and snapshot.values:
+            return dict(snapshot.values)
+    except Exception:
+        pass
+    return {}
 
 
 def main():
@@ -89,16 +86,16 @@ def main():
     )
     show_debug = st.sidebar.checkbox("Show debug", value=True)
 
-    # Session history init
+    # Session init
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    if "pending_clarification" not in st.session_state:
-        st.session_state.pending_clarification = None
+    if "thread_id" not in st.session_state:
+        st.session_state.thread_id = str(uuid.uuid4())
 
     # Sidebar actions
     if st.sidebar.button("Clear chat"):
         st.session_state.messages = []
-        st.session_state.pending_clarification = None
+        st.session_state.thread_id = str(uuid.uuid4())  # new thread = fresh memory
         st.rerun()
 
     if st.sidebar.checkbox("Show session history (raw)", value=False):
@@ -108,7 +105,6 @@ def main():
     for m in st.session_state.messages:
         with st.chat_message(m.get("role", "assistant")):
             st.markdown(m.get("content", ""))
-
             if m.get("role") == "assistant":
                 render_assistant_payload(m, show_debug=show_debug)
 
@@ -123,66 +119,79 @@ def main():
     with st.chat_message("user"):
         st.markdown(user_q)
 
-    pending = st.session_state.pending_clarification
-    effective_question = user_q
-    if pending and _is_likely_clarification_reply(user_q):
-        base_question = pending.get("base_question", "")
-        if base_question:
-            effective_question = f"{base_question}\n\nClarification from user: {user_q}"
+    # Get graph app and config
+    graph_app = get_graph_app()
+    config = {"configurable": {"thread_id": st.session_state.thread_id}}
 
-    # Run pipeline
+    # Read prior turn state from checkpoint
+    prior = _get_prior_state(graph_app, config)
+
+    # Build input with memory context from prior turn
+    input_state = {
+        "question": user_q,
+        "db_path": db_path,
+        "prior_question": prior.get("question", ""),
+        "prior_route": prior.get("route", ""),
+        "prior_missing_slots": prior.get("missing_slots", []),
+        "prior_clarifying_questions": prior.get("clarifying_questions", []),
+        "prior_columns": prior.get("columns", []),
+        "prior_rows": prior.get("rows", []),
+        "prior_sql": prior.get("sql", ""),
+    }
+
+    # Run the graph
     try:
-        res = run_pipeline(db_path, effective_question)
-        if res is None:
-            res = {"ok": False, "route": "ERROR", "message": "Pipeline returned None."}
+        result = graph_app.invoke(input_state, config=config)
+        if result is None:
+            result = {"route": "ERROR", "answer_text": "Pipeline returned None."}
     except Exception as e:
-        res = {"ok": False, "route": "ERROR", "message": f"Pipeline error: {type(e).__name__}: {e}"}
+        result = {"route": "ERROR", "answer_text": "Pipeline error: {}: {}".format(type(e).__name__, e)}
 
-    route = res.get("route")
-    ok = res.get("ok", True)
-
-    # Update clarification memory
-    if ok is False and route == "CLARIFY":
-        st.session_state.pending_clarification = {
-            "base_question": pending.get("base_question", user_q) if pending else user_q,
-            "missing_slots": res.get("missing_slots", []),
-            "clarifying_questions": res.get("clarifying_questions", []),
-        }
-    elif route in {"DATA", "OUT_OF_SCOPE", "ERROR", "CHAT"}:
-        st.session_state.pending_clarification = None
+    route = result.get("route", "")
 
     # Decide assistant text
-    if ok is False and route == "CLARIFY":
-        assistant_text = res.get("question") or res.get("message") or "I need clarification."
-    elif route == "OUT_OF_SCOPE":
-        assistant_text = res.get("message") or "Out of scope."
-    elif route == "ERROR":
-        assistant_text = res.get("message") or "Error."
+    resolved = result.get("resolved_intent", "")
+    if route == "CLARIFY":
+        qs = result.get("clarifying_questions", [])
+        assistant_text = qs[0] if qs else result.get("answer_text", "Could you clarify?")
+    elif route == "VIZ_FOLLOWUP":
+        assistant_text = "Here is the visualization for your previous query."
+    elif route in ("OUT_OF_SCOPE", "CHAT", "VIZ_NO_DATA"):
+        assistant_text = result.get("answer_text", "")
+    elif route == "ERROR" or result.get("error"):
+        assistant_text = result.get("answer_text", result.get("error", "An error occurred."))
     else:
-        assistant_text = res.get("answer_text") or res.get("message") or "Done."
+        assistant_text = result.get("answer_text", "Done.")
 
-    # Build assistant message
+    # Acknowledge clarification follow-ups
+    if resolved == "clarification_merged" and route not in ("CLARIFY", "ERROR", "OUT_OF_SCOPE"):
+        assistant_text = "Got it! " + assistant_text
+
+    # Build assistant message — only attach data payload for routes that
+    # actually produced/used query results; otherwise stale state leaks through.
+    show_data = route in ("DATA", "VIZ_FOLLOWUP")
     assistant_msg = {
         "id": str(uuid.uuid4()),
         "role": "assistant",
         "content": assistant_text,
-        "sql": res.get("sql"),
-        "columns": res.get("columns"),
-        "rows": res.get("rows"),
-        "viz": res.get("viz"),
+        "sql": result.get("sql") if show_data else None,
+        "columns": result.get("columns") if show_data else None,
+        "rows": result.get("rows") if show_data else None,
+        "viz": result.get("viz") if show_data else None,
     }
 
     if show_debug:
         assistant_msg["debug"] = {
             "route": route,
-            "stage": res.get("stage"),
-            "ok": ok,
-            "row_count": res.get("row_count"),
-            "effective_question": effective_question,
-            "pending_clarification": st.session_state.pending_clarification,
+            "resolved_intent": result.get("resolved_intent"),
+            "status": result.get("status"),
+            "row_count": len(result.get("rows") or []),
+            "thread_id": st.session_state.thread_id,
+            "prior_route": prior.get("route", ""),
+            "prior_question": prior.get("question", ""),
         }
 
-    # Render assistant 
+    # Render assistant
     with st.chat_message("assistant"):
         st.markdown(assistant_text)
         render_assistant_payload(assistant_msg, show_debug=show_debug)

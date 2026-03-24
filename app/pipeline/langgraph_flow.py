@@ -1,14 +1,18 @@
 """
-LangGraph version of the same multi-agent workflow.
+LangGraph version of the multi-agent workflow with conversation memory.
 
 Connection in flow:
-- Upstream: built via app.pipeline.build_text2sql_graph() when you switch to graph runtime.
-- This file: maps each agent into a LangGraph node with conditional edges.
-- Downstream: compiled graph can stream events or run invoke() for production.
+- Upstream: built via get_graph_app() for Streamlit / CLI usage.
+- This file: maps each agent into a LangGraph node with conditional edges
+  and adds a context_resolver node for multi-turn memory (slot filling,
+  post-result follow-ups like "plot it").
+- Downstream: compiled graph uses MemorySaver to persist state across turns
+  within the same thread_id.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, TypedDict
 
 from app.agents.analysis_agent import AnalysisAgent
@@ -22,14 +26,16 @@ from app.formatters.viz_plotly import infer_plotly
 from app.pipeline.execute_sql import execute_sql
 from app.safety.sql_validator import validate_sql
 
-try:
-    from langgraph.graph import END, StateGraph
-except Exception:  # pragma: no cover
-    END = None
-    StateGraph = None
+from langgraph.graph import END, StateGraph
+from langgraph.checkpoint.memory import MemorySaver
 
+
+# ---------------------------------------------------------------------------
+# State definition
+# ---------------------------------------------------------------------------
 
 class AgentState(TypedDict, total=False):
+    # -- core fields --
     db_path: str
     question: str
     schema_text: str
@@ -50,15 +56,37 @@ class AgentState(TypedDict, total=False):
     missing_slots: List[str]
     clarifying_questions: List[str]
 
+    # -- memory / multi-turn context (injected before invoke) --
+    resolved_intent: str
+    prior_question: str
+    prior_route: str
+    prior_missing_slots: List[str]
+    prior_clarifying_questions: List[str]
+    prior_columns: List[str]
+    prior_rows: List[Any]
+    prior_sql: str
+
+
+_VIZ_FOLLOWUP_RE = re.compile(
+    r"\b(plot|chart|graph|visuali[sz]e|"
+    r"show\s+(me\s+)?(a\s+)?(chart|graph|plot)|"
+    r"draw|diagram|histogram|bar\s*chart|pie\s*chart)\b",
+    re.IGNORECASE,
+)
+
+
+# ---------------------------------------------------------------------------
+# Graph builder
+# ---------------------------------------------------------------------------
 
 def build_text2sql_graph(max_sql_repair_attempts: int = 3):
     """
-    Build a LangGraph workflow with nodes:
-    guardrails_agent -> sql_agent -> execute_sql -> error_agent -> analysis_agent -> viz_agent
+    Build a LangGraph workflow:
+    context_resolver -> guardrails_agent -> sql_agent -> execute_sql
+                                                         -> error_agent (retry)
+                                                         -> analysis_agent -> viz_agent
+    context_resolver can also short-circuit to viz_agent for follow-ups.
     """
-    if StateGraph is None or END is None:
-        raise ImportError("langgraph is not installed. Add `langgraph` to requirements and install dependencies.")
-
     guardrails_agent = GuardrailsAgent()
     sql_agent = SQLAgent()
     error_agent = ErrorAgent()
@@ -67,6 +95,55 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
 
     workflow = StateGraph(AgentState)
 
+    # ---- Node: context_resolver (multi-turn memory) ----
+    def context_resolver_node(state: AgentState) -> AgentState:
+        question = state.get("question", "")
+        prior_route = state.get("prior_route", "")
+        prior_question = state.get("prior_question", "")
+        prior_missing_slots = state.get("prior_missing_slots", [])
+
+        # Case 1: previous turn asked for clarification
+        if prior_route == "CLARIFY" and prior_question:
+            slot_info = ""
+            if prior_missing_slots:
+                slot_info = " (filling slots: {})".format(", ".join(prior_missing_slots))
+            resolved = "{}\nUser clarification{}: {}".format(
+                prior_question, slot_info, question
+            )
+            return {"question": resolved, "resolved_intent": "clarification_merged"}
+
+        # Case 2: user asks for a visualization
+        if _VIZ_FOLLOWUP_RE.search(question):
+            prior_cols = state.get("prior_columns", [])
+            prior_rows = state.get("prior_rows", [])
+            if prior_cols and prior_rows:
+                # Combine the user's viz request with the original data question
+                # so the viz agent sees chart-type hints (e.g. "pie chart")
+                # while also knowing the data context.
+                viz_question = "{} — {}".format(question, prior_question) if prior_question else question
+                return {
+                    "question": viz_question,
+                    "columns": prior_cols,
+                    "rows": prior_rows,
+                    "sql": state.get("prior_sql", ""),
+                    "resolved_intent": "viz_followup",
+                    "route": "VIZ_FOLLOWUP",
+                }
+            else:
+                # Viz requested but no prior data to plot
+                return {
+                    "resolved_intent": "viz_no_data",
+                    "route": "VIZ_NO_DATA",
+                    "answer_text": (
+                        "I don't have any data to plot yet. "
+                        "Try asking a data question first, then I can visualize the results!"
+                    ),
+                }
+
+        # Case 3: normal new query
+        return {"resolved_intent": "new_query"}
+
+    # ---- Node: guardrails ----
     def guardrails_node(state: AgentState) -> AgentState:
         question = state.get("question", "")
         db_path = state.get("db_path", "")
@@ -84,7 +161,7 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
                 out["answer_text"] = getattr(gk, "notes", "") or "Hello!"
             else:
                 out["route"] = "OUT_OF_SCOPE"
-                out["answer_text"] = "Request refused by safety policy."
+                out["answer_text"] = "I'm designed for data analytics questions about clients, transactions, and dossiers. Could you rephrase your question around those topics?"
         elif gk.status == "NEEDS CLARIFICATION":
             out["route"] = "CLARIFY"
             qs = out["clarifying_questions"]
@@ -93,10 +170,12 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             out["route"] = "DATA"
         return out
 
+    # ---- Node: sql_agent ----
     def sql_node(state: AgentState) -> AgentState:
         sql = sql_agent.generate_sql(state["question"], state["schema_text"])
         return {"sql": sql, "error": "", "attempts": state.get("attempts", [])}
 
+    # ---- Node: execute_sql ----
     def execute_node(state: AgentState) -> AgentState:
         sql = state.get("sql", "")
         attempts = list(state.get("attempts", []))
@@ -104,7 +183,7 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
         ok, reason = validate_sql(sql)
         if not ok:
             attempts.append({"stage": "validation", "sql": sql, "error": reason})
-            return {"error": f"SQL validation failed: {reason}", "attempts": attempts}
+            return {"error": "SQL validation failed: {}".format(reason), "attempts": attempts}
 
         res = execute_sql(state["db_path"], sql)
         if not res.get("ok"):
@@ -120,6 +199,7 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             "rows": res.get("rows", []),
         }
 
+    # ---- Node: error_agent ----
     def error_node(state: AgentState) -> AgentState:
         attempts = list(state.get("attempts", []))
         sql = error_agent.repair_sql(
@@ -131,6 +211,7 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
         attempts.append({"stage": "repair", "sql": sql, "error": ""})
         return {"sql": sql, "attempts": attempts, "error": ""}
 
+    # ---- Node: analysis_agent ----
     def analysis_node(state: AgentState) -> AgentState:
         cols = state.get("columns", [])
         rows = state.get("rows", [])
@@ -151,6 +232,7 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             "retry_count": max(0, len(state.get("attempts", [])) - 1),
         }
 
+    # ---- Node: viz_agent ----
     def viz_node(state: AgentState) -> AgentState:
         cols = state.get("columns", [])
         rows = state.get("rows", [])
@@ -163,6 +245,15 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
         )
         return {"viz": viz}
 
+    # ---- Routing functions ----
+    def check_context(state: AgentState) -> str:
+        intent = state.get("resolved_intent", "new_query")
+        if intent == "viz_followup":
+            return "viz_direct"
+        if intent == "viz_no_data":
+            return "blocked"
+        return "guardrails"
+
     def check_guardrails(state: AgentState) -> str:
         route = state.get("route", "OUT_OF_SCOPE")
         if route == "DATA":
@@ -172,11 +263,15 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
     def check_execution(state: AgentState) -> str:
         if not state.get("error"):
             return "success"
-        repair_count = sum(1 for a in state.get("attempts", []) if a.get("stage") == "repair")
+        repair_count = sum(
+            1 for a in state.get("attempts", []) if a.get("stage") == "repair"
+        )
         if repair_count < max_sql_repair_attempts:
             return "retry"
         return "end"
 
+    # ---- Wire nodes ----
+    workflow.add_node("context_resolver", context_resolver_node)
     workflow.add_node("guardrails_agent", guardrails_node)
     workflow.add_node("sql_agent", sql_node)
     workflow.add_node("execute_sql", execute_node)
@@ -184,7 +279,17 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
     workflow.add_node("analysis_agent", analysis_node)
     workflow.add_node("viz_agent", viz_node)
 
-    workflow.set_entry_point("guardrails_agent")
+    # ---- Wire edges ----
+    workflow.set_entry_point("context_resolver")
+    workflow.add_conditional_edges(
+        "context_resolver",
+        check_context,
+        {
+            "viz_direct": "viz_agent",
+            "guardrails": "guardrails_agent",
+            "blocked": END,
+        },
+    )
     workflow.add_conditional_edges(
         "guardrails_agent",
         check_guardrails,
@@ -207,4 +312,22 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
     workflow.add_edge("analysis_agent", "viz_agent")
     workflow.add_edge("viz_agent", END)
 
-    return workflow.compile()
+    return workflow
+
+
+# ---------------------------------------------------------------------------
+# Application singleton  (used by streamlit_app.py)
+# ---------------------------------------------------------------------------
+
+_app_instance = None
+_memory_instance = None
+
+
+def get_graph_app():
+    """Return a compiled LangGraph app with MemorySaver for multi-turn memory."""
+    global _app_instance, _memory_instance
+    if _app_instance is None:
+        _memory_instance = MemorySaver()
+        workflow = build_text2sql_graph()
+        _app_instance = workflow.compile(checkpointer=_memory_instance)
+    return _app_instance

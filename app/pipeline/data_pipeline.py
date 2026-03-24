@@ -67,7 +67,7 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
             "stage": "guardrails_agent",
             "status": gk.status,
             "reason": gk.parsed_intent,
-            "message": "Request refused by safety policy.",
+            "message": "I'm designed for data analytics questions about clients, transactions, and dossiers. Could you rephrase your question around those topics?",
             "notes": gk.notes,
         }
     if gk.status == "NEEDS CLARIFICATION":

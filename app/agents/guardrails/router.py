@@ -31,7 +31,7 @@ DATA_HINTS = [
     r"\btransactions?\b",
     r"\bmontant\b",
     r"\bsegment\b",
-    r"\bcommune\b",
+    r"\bcommunes?\b",
     r"\benseigne\b",
     r"\bcategorie_achat\b",
     r"\btaux\b",
@@ -91,15 +91,22 @@ def route_message(message: str) -> RouterDecision:
 
             cq_parts = []
             if need_metric:
-                cq_parts.append("Which metric for top/best? (total amount, #transactions, #dossiers, etc.)")
+                cq_parts.append("What metric should I rank by — total amount, number of transactions, or something else?")
             if need_time:
-                cq_parts.append("Which time period? (e.g. 2024, 2025, or specific dates)")
+                cq_parts.append("What time period? (e.g. 2024, a specific month)")
+
+            numbered = "\n".join(
+                "{}. {}".format(i + 1, p) for i, p in enumerate(cq_parts)
+            )
+            cq_text = "I can look that up! I just need a couple of details:\n" + numbered
 
             return RouterDecision(
                 route="CLARIFY",
                 reason=f"ranking_missing_{'_'.join(missing)}",
-                clarifying_question=" ".join(cq_parts),
+                clarifying_question=cq_text,
             )
+        else:
+            return RouterDecision(route="DATA", reason="ranking_complete")
 
     if _contain_any(DATA_HINTS, q):
         return RouterDecision(route="DATA", reason="mention_data_entities")
