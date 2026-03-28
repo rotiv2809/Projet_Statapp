@@ -55,6 +55,7 @@ Projet_Statapp/
   logs/
     build_db_meta.json
   docs/
+    ARCHITECTURE.md
     CONFIG_TRACKER.md          # central register of config values + reasons + change log template
     diagrams/
       README.md
@@ -62,11 +63,11 @@ Projet_Statapp/
       project_architecture.svg
       runtime_flow.mmd
       runtime_flow.svg
+    references/               # research papers and background reading
+    STRUCTURE.md
   streamlit_app.py            # Streamlit UI
   requirements.txt
   README.md
-  README_ARCHITECTURE.md
-  PROJECT_STRUCTURE.md
 ```
 
 ## Folder responsibilities

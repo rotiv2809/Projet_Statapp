@@ -2,10 +2,13 @@
 Create your own local data folder: data/... and so inside this folder, it consists of client.csv, dossier.csv, transaction.csv.
 
 Architecture and file-connection guide:
-`README_ARCHITECTURE.md`
+`docs/ARCHITECTURE.md`
 
 Configuration tracker (what to change, where, and why):
 `docs/CONFIG_TRACKER.md`
+
+Project structure guide:
+`docs/STRUCTURE.md`
 
 Requirement python version 3.12 
 
@@ -163,14 +166,16 @@ Projet_Statapp/
   logs/
     build_db_meta.json
   docs/
+    ARCHITECTURE.md
     diagrams/
       README.md
       project_architecture.mmd
       project_architecture.svg
       runtime_flow.mmd
       runtime_flow.svg
+    references/
+      ...
+    STRUCTURE.md
   streamlit_app.py
   requirements.txt
-  PROJECT_STRUCTURE.md
-  README_ARCHITECTURE.md
 ```

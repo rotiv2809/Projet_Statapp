@@ -10,10 +10,10 @@ This document explains how the project works end-to-end:
 - why each layer exists.
 
 Diagrams are available in:
-`docs/diagrams/`
+`diagrams/`
 
 Configuration and decision tracking is in:
-`docs/CONFIG_TRACKER.md`
+`CONFIG_TRACKER.md`
 
 ## 1. What This Project Does
 
