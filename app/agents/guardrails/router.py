@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Literal, Optional
 
 from app.agents.guardrails.gatekeeper import is_unsafe_user_input
+from app.messages import build_ranking_clarification_message
 
 Route = Literal["REFUSE", "CLARIFY", "DATA", "CHAT"]
 
@@ -95,10 +96,7 @@ def route_message(message: str) -> RouterDecision:
             if need_time:
                 cq_parts.append("What time period? (e.g. 2024, a specific month)")
 
-            numbered = "\n".join(
-                "{}. {}".format(i + 1, p) for i, p in enumerate(cq_parts)
-            )
-            cq_text = "I can look that up! I just need a couple of details:\n" + numbered
+            cq_text = build_ranking_clarification_message(cq_parts)
 
             return RouterDecision(
                 route="CLARIFY",

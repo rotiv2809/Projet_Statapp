@@ -211,8 +211,8 @@ This document provides an overview of the core functions, classes, and entry poi
   - `read_csv_auto(path)`
   - `create_index_if_exists(cur, table, col)`
 
-### `scripts/test_data_pipeline.py` / `scripts/test_router.py` / `scripts/test_safety_prompts.py`
-- Quick test scripts that:
+### `scripts/manual_data_pipeline_check.py` / `scripts/manual_router_check.py` / `scripts/manual_safety_check.py`
+- Manual check scripts that:
   - run sample questions through the pipeline
   - show routing/classification decisions
   - validate SQL safety and execution

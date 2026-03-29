@@ -7,7 +7,15 @@ import pandas as pd
 from dotenv import load_dotenv
 import plotly.graph_objects as go
 
-from app.pipeline.langgraph_flow import get_graph_app
+from app.logging_utils import configure_logging
+from app.messages import (
+    CLARIFICATION_ACK_PREFIX,
+    CLARIFY_REQUEST_MESSAGE,
+    DONE_MESSAGE,
+    GENERIC_ERROR_MESSAGE,
+    VIZ_FOLLOWUP_MESSAGE,
+)
+from app.pipeline.langgraph_flow import invoke_graph_pipeline
 
 load_dotenv()
 
@@ -63,18 +71,8 @@ def render_assistant_payload(m: dict, show_debug: bool):
             st.json(m["debug"])
 
 
-def _get_prior_state(graph_app, config: dict) -> dict:
-    """Read the previous turn's final state from the LangGraph checkpoint."""
-    try:
-        snapshot = graph_app.get_state(config)
-        if snapshot and snapshot.values:
-            return dict(snapshot.values)
-    except Exception:
-        pass
-    return {}
-
-
 def main():
+    configure_logging()
     st.set_page_config(page_title="StatApp SQL Chatbot", layout="wide")
     st.title("StatApp: SQL Chatbot")
 
@@ -119,33 +117,11 @@ def main():
     with st.chat_message("user"):
         st.markdown(user_q)
 
-    # Get graph app and config
-    graph_app = get_graph_app()
-    config = {"configurable": {"thread_id": st.session_state.thread_id}}
-
-    # Read prior turn state from checkpoint
-    prior = _get_prior_state(graph_app, config)
-
-    # Build input with memory context from prior turn
-    input_state = {
-        "question": user_q,
-        "db_path": db_path,
-        "prior_question": prior.get("question", ""),
-        "prior_route": prior.get("route", ""),
-        "prior_missing_slots": prior.get("missing_slots", []),
-        "prior_clarifying_questions": prior.get("clarifying_questions", []),
-        "prior_columns": prior.get("columns", []),
-        "prior_rows": prior.get("rows", []),
-        "prior_sql": prior.get("sql", ""),
-    }
-
-    # Run the graph
-    try:
-        result = graph_app.invoke(input_state, config=config)
-        if result is None:
-            result = {"route": "ERROR", "answer_text": "Pipeline returned None."}
-    except Exception as e:
-        result = {"route": "ERROR", "answer_text": "Pipeline error: {}: {}".format(type(e).__name__, e)}
+    result, prior = invoke_graph_pipeline(
+        db_path=db_path,
+        question=user_q,
+        thread_id=st.session_state.thread_id,
+    )
 
     route = result.get("route", "")
 
@@ -153,19 +129,19 @@ def main():
     resolved = result.get("resolved_intent", "")
     if route == "CLARIFY":
         qs = result.get("clarifying_questions", [])
-        assistant_text = qs[0] if qs else result.get("answer_text", "Could you clarify?")
+        assistant_text = qs[0] if qs else result.get("answer_text", CLARIFY_REQUEST_MESSAGE)
     elif route == "VIZ_FOLLOWUP":
-        assistant_text = "Here is the visualization for your previous query."
+        assistant_text = VIZ_FOLLOWUP_MESSAGE
     elif route in ("OUT_OF_SCOPE", "CHAT", "VIZ_NO_DATA"):
         assistant_text = result.get("answer_text", "")
     elif route == "ERROR" or result.get("error"):
-        assistant_text = result.get("answer_text", result.get("error", "An error occurred."))
+        assistant_text = result.get("answer_text", result.get("error", GENERIC_ERROR_MESSAGE))
     else:
-        assistant_text = result.get("answer_text", "Done.")
+        assistant_text = result.get("answer_text", DONE_MESSAGE)
 
     # Acknowledge clarification follow-ups
     if resolved == "clarification_merged" and route not in ("CLARIFY", "ERROR", "OUT_OF_SCOPE"):
-        assistant_text = "Got it! " + assistant_text
+        assistant_text = CLARIFICATION_ACK_PREFIX + assistant_text
 
     # Build assistant message — only attach data payload for routes that
     # actually produced/used query results; otherwise stale state leaks through.

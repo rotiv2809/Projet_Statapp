@@ -1,9 +1,13 @@
-import pytest
-from app.agents.sql.agent import SQLAgent
+from app.agents.sql.agent import _clean_sql
 
-def test_generate_sql_simple():
-    agent = SQLAgent()
-    schema = "CREATE TABLE clients (id INTEGER, name TEXT);"
-    question = "Show all clients"
-    sql = agent.generate_sql(question, schema)
-    assert "SELECT" in sql and "clients" in sql
+
+def test_clean_sql_strips_markdown_and_trailing_semicolon():
+    raw = "```sql\nSELECT client_id, commune FROM clients LIMIT 10;\n```"
+
+    assert _clean_sql(raw) == "SELECT client_id, commune FROM clients LIMIT 10"
+
+
+def test_clean_sql_stops_at_first_blank_line():
+    raw = "SELECT client_id FROM clients\n\nExtra explanation that should be ignored"
+
+    assert _clean_sql(raw) == "SELECT client_id FROM clients"

@@ -12,8 +12,9 @@ Connection in flow:
 
 from __future__ import annotations
 
+import logging
 import re
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 from app.agents.analysis_agent import AnalysisAgent
 from app.agents.error_agent import ErrorAgent
@@ -21,8 +22,18 @@ from app.agents.guardrails.agent import GuardrailsAgent
 from app.agents.sql.agent import SQLAgent
 from app.agents.viz_agent import VizAgent
 from app.db.sqlite import get_schema_text
-from app.formatters.format_response import format_response_dict
+from app.formatters.format_response import format_response_dict, with_plot_suggestion
 from app.formatters.viz_plotly import infer_plotly
+from app.llm.factory import LLMConfigurationError
+from app.logging_utils import get_logger, log_event
+from app.messages import (
+    CLARIFY_REQUEST_MESSAGE,
+    OUT_OF_SCOPE_MESSAGE,
+    PIPELINE_NONE_MESSAGE,
+    GREETING_RESPONSES,
+    VIZ_NO_DATA_MESSAGE,
+    pipeline_error_message,
+)
 from app.pipeline.execute_sql import execute_sql
 from app.safety.sql_validator import validate_sql
 
@@ -73,6 +84,7 @@ _VIZ_FOLLOWUP_RE = re.compile(
     r"draw|diagram|histogram|bar\s*chart|pie\s*chart)\b",
     re.IGNORECASE,
 )
+logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +123,14 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             resolved = "{}\nUser clarification{}: {}".format(
                 prior_question, slot_info, question
             )
+            log_event(
+                logger,
+                logging.INFO,
+                "graph.context_resolved",
+                resolved_intent="clarification_merged",
+                prior_route=prior_route,
+                question_preview=question[:120],
+            )
             return {"question": resolved, "resolved_intent": "clarification_merged"}
 
         # Case 2: user asks for a visualization
@@ -121,7 +141,15 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
                 # Combine the user's viz request with the original data question
                 # so the viz agent sees chart-type hints (e.g. "pie chart")
                 # while also knowing the data context.
-                viz_question = "{} — {}".format(question, prior_question) if prior_question else question
+                viz_question = "{} - {}".format(question, prior_question) if prior_question else question
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "graph.context_resolved",
+                    resolved_intent="viz_followup",
+                    prior_route=prior_route,
+                    question_preview=question[:120],
+                )
                 return {
                     "question": viz_question,
                     "columns": prior_cols,
@@ -135,13 +163,18 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
                 return {
                     "resolved_intent": "viz_no_data",
                     "route": "VIZ_NO_DATA",
-                    "answer_text": (
-                        "I don't have any data to plot yet. "
-                        "Try asking a data question first, then I can visualize the results!"
-                    ),
+                    "answer_text": VIZ_NO_DATA_MESSAGE,
                 }
 
         # Case 3: normal new query
+        log_event(
+            logger,
+            logging.INFO,
+            "graph.context_resolved",
+            resolved_intent="new_query",
+            prior_route=prior_route,
+            question_preview=question[:120],
+        )
         return {"resolved_intent": "new_query"}
 
     # ---- Node: guardrails ----
@@ -159,21 +192,37 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
         if gk.status == "OUT OF SCOPE":
             if getattr(gk, "parsed_intent", "") == "greeting":
                 out["route"] = "CHAT"
-                out["answer_text"] = getattr(gk, "notes", "") or "Hello!"
+                out["answer_text"] = getattr(gk, "notes", "") or GREETING_RESPONSES[0]
             else:
                 out["route"] = "OUT_OF_SCOPE"
-                out["answer_text"] = "I'm designed for data analytics questions about clients, transactions, and dossiers. Could you rephrase your question around those topics?"
+                out["answer_text"] = OUT_OF_SCOPE_MESSAGE
         elif gk.status == "NEEDS CLARIFICATION":
             out["route"] = "CLARIFY"
             qs = out["clarifying_questions"]
-            out["answer_text"] = qs[0] if qs else "Could you clarify your request?"
+            out["answer_text"] = qs[0] if qs else CLARIFY_REQUEST_MESSAGE
         else:
             out["route"] = "DATA"
+        log_event(
+            logger,
+            logging.INFO,
+            "graph.guardrails_decision",
+            route=out.get("route"),
+            status=gk.status,
+            reason=getattr(gk, "parsed_intent", ""),
+            missing_slots=out.get("missing_slots", []),
+        )
         return out
 
     # ---- Node: sql_agent ----
     def sql_node(state: AgentState) -> AgentState:
         sql = sql_agent.generate_sql(state["question"], state["schema_text"])
+        log_event(
+            logger,
+            logging.INFO,
+            "graph.sql_generated",
+            route=state.get("route"),
+            sql=sql,
+        )
         return {"sql": sql, "error": "", "attempts": state.get("attempts", [])}
 
     # ---- Node: execute_sql ----
@@ -184,15 +233,36 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
         ok, reason = validate_sql(sql)
         if not ok:
             attempts.append({"stage": "validation", "sql": sql, "error": reason})
+            log_event(
+                logger,
+                logging.WARNING,
+                "graph.sql_validation_failed",
+                sql=sql,
+                error=reason,
+            )
             return {"error": "SQL validation failed: {}".format(reason), "attempts": attempts}
 
         res = execute_sql(state["db_path"], sql)
         if not res.get("ok"):
             err = res.get("error", "Unknown SQL execution error.")
             attempts.append({"stage": "execution", "sql": sql, "error": err})
+            log_event(
+                logger,
+                logging.WARNING,
+                "graph.sql_execution_failed",
+                sql=sql,
+                error=err,
+            )
             return {"error": err, "attempts": attempts}
 
         attempts.append({"stage": "execution", "sql": sql, "error": ""})
+        log_event(
+            logger,
+            logging.INFO,
+            "graph.sql_executed",
+            sql=sql,
+            row_count=len(res.get("rows", [])),
+        )
         return {
             "error": "",
             "attempts": attempts,
@@ -210,6 +280,13 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             error_message=state.get("error", ""),
         )
         attempts.append({"stage": "repair", "sql": sql, "error": ""})
+        log_event(
+            logger,
+            logging.INFO,
+            "graph.sql_repaired",
+            sql=sql,
+            repair_count=sum(1 for a in attempts if a.get("stage") == "repair"),
+        )
         return {"sql": sql, "attempts": attempts, "error": ""}
 
     # ---- Node: analysis_agent ----
@@ -224,8 +301,14 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             rows=rows,
             fallback_text=formatted["text"],
         )
-        # Append a plot suggestion so user knows they can ask for a chart
-        answer_text += "\n\n📊 *I can plot this data for you — just ask! (e.g. \"plot a bar chart\" or \"show me a pie chart\")*"
+        answer_text = with_plot_suggestion(answer_text)
+        log_event(
+            logger,
+            logging.INFO,
+            "graph.analysis_completed",
+            row_count=len(rows),
+            retry_count=max(0, len(state.get("attempts", [])) - 1),
+        )
 
         return {
             "answer_text": answer_text,
@@ -246,6 +329,13 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             columns=cols,
             rows=rows,
             fallback_viz=fallback,
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "graph.viz_generated",
+            has_viz=bool(viz),
+            row_count=len(rows),
         )
         return {"viz": viz}
 
@@ -335,3 +425,90 @@ def get_graph_app():
         workflow = build_text2sql_graph()
         _app_instance = workflow.compile(checkpointer=_memory_instance)
     return _app_instance
+
+
+def _get_prior_state(graph_app, config: dict) -> dict:
+    """Read the previous turn's final state from the LangGraph checkpoint."""
+    try:
+        snapshot = graph_app.get_state(config)
+        if snapshot and snapshot.values:
+            return dict(snapshot.values)
+    except Exception:
+        pass
+    return {}
+
+
+def invoke_graph_pipeline(
+    *,
+    db_path: str,
+    question: str,
+    thread_id: str,
+    graph_app=None,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Invoke the canonical LangGraph runtime used by the UI.
+
+    Returns a tuple of:
+    - result: final graph state/result payload
+    - prior: previous checkpoint state used as memory context
+    """
+    try:
+        graph_app = graph_app or get_graph_app()
+    except LLMConfigurationError as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "graph.setup_failed",
+            thread_id=thread_id,
+            error=str(exc),
+        )
+        return {"route": "ERROR", "answer_text": str(exc)}, {}
+
+    config = {"configurable": {"thread_id": thread_id}}
+    prior = _get_prior_state(graph_app, config)
+    log_event(
+        logger,
+        logging.INFO,
+        "graph.invoke_started",
+        thread_id=thread_id,
+        question_preview=question[:120],
+        prior_route=prior.get("route", ""),
+    )
+
+    input_state = {
+        "question": question,
+        "db_path": db_path,
+        "prior_question": prior.get("question", ""),
+        "prior_route": prior.get("route", ""),
+        "prior_missing_slots": prior.get("missing_slots", []),
+        "prior_clarifying_questions": prior.get("clarifying_questions", []),
+        "prior_columns": prior.get("columns", []),
+        "prior_rows": prior.get("preview_rows", prior.get("rows", [])),
+        "prior_sql": prior.get("sql", ""),
+    }
+
+    try:
+        result = graph_app.invoke(input_state, config=config)
+        if result is None:
+            result = {"route": "ERROR", "answer_text": PIPELINE_NONE_MESSAGE}
+    except Exception as e:
+        log_event(
+            logger,
+            logging.ERROR,
+            "graph.invoke_failed",
+            thread_id=thread_id,
+            error=str(e),
+        )
+        result = {"route": "ERROR", "answer_text": pipeline_error_message(e)}
+
+    log_event(
+        logger,
+        logging.INFO,
+        "graph.invoke_completed",
+        thread_id=thread_id,
+        route=result.get("route", ""),
+        status=result.get("status", ""),
+        retry_count=result.get("retry_count", 0),
+    )
+
+    return result, prior

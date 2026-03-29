@@ -16,7 +16,6 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from app.agents.shared.config import AGENT_CONFIGS
 from app.agents.sql.prompt import SQL_SYSTEM_PROMPT
-from app.llm.factory import get_llm
 
 _CODE_FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*|\s*```$", re.MULTILINE)
 
@@ -38,6 +37,8 @@ def _clean_sql(text: str) -> str:
 
 class SQLAgent:
     def __init__(self):
+        from app.llm.factory import get_llm
+
         cfg = AGENT_CONFIGS["sql_agent"]
         self.role = cfg["role"]
         self.system_prompt = cfg["system_prompt"]

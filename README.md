@@ -73,6 +73,13 @@ To test the frontend, in your terminal runs
 streamlit run streamlit_app.py
 ```
 
+Automated tests
+```
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests -q
+```
+
+`tests/` is the authoritative automated suite. The files under `scripts/manual_*_check.py` are exploratory manual checks only.
+
 
 Optional if you want to test function:
 Testing database
@@ -118,7 +125,9 @@ print(execute_sql('data/statapp.sqlite', sql))"
 Projet_Statapp/
   app/
     __init__.py
+    logging_utils.py
     main.py
+    messages.py
     agents/
       __init__.py
       analysis_agent.py
@@ -159,10 +168,18 @@ Projet_Statapp/
   scripts/
     __init__.py
     build_sqlite_db.py
+    manual_data_pipeline_check.py
+    manual_router_check.py
+    manual_safety_check.py
     sanity_checks.py
+  tests/
     test_data_pipeline.py
-    test_router.py
-    test_safety_prompts.py
+    test_format_response.py
+    test_guardrails.py
+    test_langgraph_flow.py
+    test_llm_factory.py
+    test_sql_agent.py
+    test_sql_validator.py
   logs/
     build_db_meta.json
   docs/

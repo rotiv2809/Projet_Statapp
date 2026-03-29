@@ -5,6 +5,13 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 import math
 
+from app.messages import (
+    NO_RESULTS_MESSAGE,
+    PII_EXPOSURE_REFUSAL,
+    PLOT_SUGGESTION,
+    format_general_results_summary,
+)
+
 PII_COLUMNS = {"nom", "prenom", "date_naissance"}
 
 
@@ -15,7 +22,6 @@ class FormattedResponse:
     preview_rows: List[List[str]]
     preview_row_count: int
     total_rows: int
-
 
 def _to_str(x: Any) -> str:
     if x is None:
@@ -57,6 +63,15 @@ def _normalize_rows(columns: Sequence[str], rows: Any) -> List[List[Any]]:
     return [list(r) for r in rows]
 
 
+def with_plot_suggestion(text: str) -> str:
+    base = (text or "").rstrip()
+    if not base:
+        return PLOT_SUGGESTION.strip()
+    if PLOT_SUGGESTION.strip() in base:
+        return base
+    return base + PLOT_SUGGESTION
+
+
 def _ascii_table(columns: Sequence[str], rows: List[List[str]], max_col_width: int = 32) -> str:
     cols = [str(c) for c in columns]
     data = [cols] + rows
@@ -92,7 +107,7 @@ def format_response(
     cols = [str(c) for c in (columns or [])]
     if any(c in PII_COLUMNS for c in cols):
         return FormattedResponse(
-            text="Refus: la requête tente d'exposer des données personnelles .",
+            text=PII_EXPOSURE_REFUSAL,
             table="",
             preview_rows=[],
             preview_row_count=0,
@@ -109,7 +124,7 @@ def format_response(
     # Case A: no rows
     if total_rows == 0:
         return FormattedResponse(
-            text="Aucun résultat.",
+            text=NO_RESULTS_MESSAGE,
             table=_ascii_table(cols, [], max_col_width=max_col_width) if cols else "",
             preview_rows=[],
             preview_row_count=0,
@@ -132,25 +147,23 @@ def format_response(
     # Case C: 2 columns 
     if len(cols) == 2:
         group_col, val_col = cols[0], cols[1]
-        shown = min(200, total_rows)
-        lines = [f"Top {shown} ({group_col} → {val_col}) :"]
-        for r in preview_str[:shown]:
+        shown = len(preview_str)
+        lines = ["Top {} ({} -> {}):".format(shown, group_col, val_col)]
+        for r in preview_str:
             lines.append(f"- {r[0]} : {r[1]}")
         if total_rows > shown:
-            lines.append(f"(affichage tronqué: {shown}/{total_rows})")
+            lines.append("(showing {}/{})".format(shown, total_rows))
         return FormattedResponse(
             text="\n".join(lines),
-            table=_ascii_table(cols, preview_str[:shown], max_col_width=max_col_width),
-            preview_rows=preview_str[:shown],
+            table=_ascii_table(cols, preview_str, max_col_width=max_col_width),
+            preview_rows=preview_str,
             preview_row_count=shown,
             total_rows=total_rows,
         )
 
     # Case D: general table preview
     table = _ascii_table(cols, preview_str, max_col_width=max_col_width)
-    text = f"Résultats: {total_rows} lignes. Aperçu: {len(preview_str)} lignes."
-    if total_rows > len(preview_str):
-        text += f" (tronqué à {len(preview_str)})"
+    text = format_general_results_summary(total_rows, len(preview_str))
 
     return FormattedResponse(
         text=text,

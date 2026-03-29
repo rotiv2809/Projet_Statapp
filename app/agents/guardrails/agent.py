@@ -15,6 +15,7 @@ from app.agents.guardrails.gatekeeper import gatekeep
 from app.agents.guardrails.router import route_message
 from app.agents.guardrails.schemas import GatekeeperResult
 from app.agents.shared.config import AGENT_CONFIGS
+from app.messages import GREETING_RESPONSES, OUT_OF_SCOPE_MESSAGE
 
 
 def _missing_slots_from_reason(reason: str) -> list[str]:
@@ -69,18 +70,14 @@ class GuardrailsAgent:
                     parsed_intent="greeting",
                     clarifying_questions=[],
                     missing_slots=[],
-                    notes=random.choice([
-                        "Hey! I'm your data assistant. Try asking: 'Top 10 communes by total amount in 2024'.",
-                        "Hello! I can help you explore your data. For example: 'How many clients per segment in 2024?'",
-                        "Hi there! Ask me anything about your clients, transactions, or dossiers. Example: 'Top 10 communes by number of transactions in 2024'.",
-                    ]),
+                    notes=random.choice(GREETING_RESPONSES),
                 )
             return GatekeeperResult(
                 status="OUT OF SCOPE",
                 parsed_intent="non_data_chat",
                 clarifying_questions=[],
                 missing_slots=[],
-                notes="I'm designed for data analytics questions about clients, transactions, and dossiers. Could you rephrase your question around those topics?",
+                notes=OUT_OF_SCOPE_MESSAGE,
             )
 
         return base

@@ -265,9 +265,10 @@ For question: `"Top 10 communes by number of clients in 2024"`
 
 - `scripts/build_sqlite_db.py`: builds local SQLite from CSVs.
 - `scripts/sanity_checks.py`: simple relational integrity checks.
-- `scripts/test_data_pipeline.py`: runs pipeline on sample questions.
-- `scripts/test_router.py`: quick router behavior tests.
-- `scripts/test_safety_prompts.py`: gatekeeper + SQL safety behavior checks.
+- `scripts/manual_data_pipeline_check.py`: manual pipeline run on sample questions.
+- `scripts/manual_router_check.py`: manual router behavior check.
+- `scripts/manual_safety_check.py`: manual gatekeeper + SQL safety check.
+- `tests/`: authoritative automated pytest suite.
 
 ## 12. Notes for Further Evolution
 

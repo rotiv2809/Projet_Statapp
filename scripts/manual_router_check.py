@@ -1,3 +1,5 @@
+"""Manual router check. Not part of the automated pytest suite."""
+
 from app.agents.guardrails.router import route_message
 
 tests = [

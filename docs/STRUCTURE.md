@@ -7,7 +7,9 @@ This document explains the current repository layout.
 Projet_Statapp/
   app/
     __init__.py               # package entrypoint
+    logging_utils.py          # structured JSON-style logging helpers
     main.py                   # CLI entrypoint (single pipeline run)
+    messages.py               # centralized user-facing fallback copy
     agents/
       __init__.py
       analysis_agent.py       # NL explanation of SQL results
@@ -48,10 +50,17 @@ Projet_Statapp/
   scripts/
     __init__.py
     build_sqlite_db.py
+    manual_data_pipeline_check.py
+    manual_router_check.py
+    manual_safety_check.py
     sanity_checks.py
+  tests/
     test_data_pipeline.py
-    test_router.py
-    test_safety_prompts.py
+    test_format_response.py
+    test_guardrails.py
+    test_langgraph_flow.py
+    test_sql_agent.py
+    test_sql_validator.py
   logs/
     build_db_meta.json
   docs/
@@ -76,5 +85,8 @@ Projet_Statapp/
 - `app/agents/guardrails/`: safety gating, routing, and guardrails orchestration.
 - `app/agents/shared/`: shared agent configuration.
 - `app/agents/sql/`: SQL generation prompt + implementation.
-- `scripts/`: local build, sanity checks, and script-style tests.
+- `app/messages.py`: shared fallback and UI-facing copy.
+- `app/logging_utils.py`: structured logging helpers and log-level setup.
+- `scripts/`: local build and manual sanity checks.
+- `tests/`: authoritative automated pytest suite.
 - `logs/`: generated artifacts.

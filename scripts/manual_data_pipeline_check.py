@@ -1,3 +1,5 @@
+"""Manual pipeline check. Not part of the automated pytest suite."""
+
 from dotenv import load_dotenv
 load_dotenv()
 from app.pipeline.data_pipeline import run_data_pipeline
@@ -20,4 +22,3 @@ for q in tests:
     print("Q:", q)
     res = run_data_pipeline(DB, q)
     print(res)
-

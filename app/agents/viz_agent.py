@@ -18,7 +18,6 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 from app.agents.shared.config import AGENT_CONFIGS
-from app.llm.factory import get_llm
 
 _CODE_FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*|\s*```$", re.MULTILINE)
 
@@ -31,6 +30,8 @@ def _clean_code(text: str) -> str:
 
 class VizAgent:
     def __init__(self):
+        from app.llm.factory import get_llm
+
         cfg = AGENT_CONFIGS["viz_agent"]
         self.role = cfg["role"]
         self.system_prompt = cfg["system_prompt"]

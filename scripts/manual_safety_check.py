@@ -1,3 +1,5 @@
+"""Manual safety and SQL-generation check. Not part of the automated pytest suite."""
+
 from app.db.sqlite import get_schema_text
 from app.agents.guardrails.gatekeeper import gatekeep
 from app.agents.sql.agent import SQLAgent
