@@ -4,7 +4,14 @@ from typing import Any
 
 from app.pipeline.execute_sql import execute_sql
 
-__all__ = ["build_text2sql_graph", "execute_sql", "get_graph_app", "invoke_graph_pipeline", "run_data_pipeline"]
+__all__ = [
+    "build_text2sql_graph",
+    "execute_sql",
+    "get_graph_app",
+    "invoke_graph_pipeline",
+    "run_data_pipeline",
+    "run_reviewed_sql",
+]
 
 
 def run_data_pipeline(*args: Any, **kwargs: Any) -> Any:
@@ -29,3 +36,9 @@ def invoke_graph_pipeline(*args: Any, **kwargs: Any) -> Any:
     from app.pipeline.langgraph_flow import invoke_graph_pipeline as _invoke_graph_pipeline
 
     return _invoke_graph_pipeline(*args, **kwargs)
+
+
+def run_reviewed_sql(*args: Any, **kwargs: Any) -> Any:
+    from app.pipeline.expert_review import run_reviewed_sql as _run_reviewed_sql
+
+    return _run_reviewed_sql(*args, **kwargs)

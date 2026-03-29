@@ -80,6 +80,8 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests -q
 
 `tests/` is the authoritative automated suite. The files under `scripts/manual_*_check.py` are exploratory manual checks only.
 
+Expert SQL reviews are persisted in `corrections_log` inside the SQLite database and can be reused automatically for similar future questions.
+
 
 Optional if you want to test function:
 Testing database
@@ -174,6 +176,7 @@ Projet_Statapp/
     sanity_checks.py
   tests/
     test_data_pipeline.py
+    test_expert_review.py
     test_format_response.py
     test_guardrails.py
     test_langgraph_flow.py

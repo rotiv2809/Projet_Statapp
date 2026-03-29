@@ -15,7 +15,7 @@ from app.messages import (
     GENERIC_ERROR_MESSAGE,
     VIZ_FOLLOWUP_MESSAGE,
 )
-from app.pipeline.langgraph_flow import invoke_graph_pipeline
+from app.pipeline import invoke_graph_pipeline, run_reviewed_sql
 
 load_dotenv()
 
@@ -36,14 +36,69 @@ def render_plotly(viz: dict, key: str):
         st.warning("Could not render Plotly figure: {}: {}".format(type(e).__name__, e))
 
 
-def render_assistant_payload(m: dict, show_debug: bool):
+def render_assistant_payload(m: dict, show_debug: bool, db_path: str):
     """Render assistant extras: SQL, dataframe, download, viz, debug."""
     mid = _msg_id(m)
+    question = str(m.get("question") or "")
 
     # SQL
     if m.get("sql"):
         with st.expander("Show SQL query"):
             st.code(m["sql"], language="sql")
+
+        with st.expander("Expert SQL review"):
+            st.caption("Edit the SQL, re-run it safely, and save the correction for future reuse.")
+            with st.form("review_form_{}".format(mid)):
+                reviewed_sql = st.text_area(
+                    "Reviewed SQL",
+                    value=m["sql"],
+                    key="review_sql_{}".format(mid),
+                    height=180,
+                )
+                review_user = st.text_input(
+                    "Reviewer name",
+                    value="expert",
+                    key="review_user_{}".format(mid),
+                )
+                submitted = st.form_submit_button("Run reviewed SQL")
+
+            if submitted:
+                review_result = run_reviewed_sql(
+                    db_path=db_path,
+                    question=question,
+                    generated_sql=m["sql"],
+                    reviewed_sql=reviewed_sql,
+                    review_user=review_user,
+                )
+                if review_result.get("ok"):
+                    review_msg = {
+                        "id": str(uuid.uuid4()),
+                        "role": "assistant",
+                        "content": review_result["answer_text"],
+                        "question": question,
+                        "sql": review_result.get("sql"),
+                        "columns": review_result.get("columns"),
+                        "rows": review_result.get("rows"),
+                        "viz": review_result.get("viz"),
+                        "reviewed_from_sql": m["sql"],
+                        "review_user": review_result.get("review_user"),
+                    }
+                    if show_debug:
+                        review_msg["debug"] = {
+                            "route": review_result.get("route"),
+                            "stage": review_result.get("stage"),
+                            "row_count": len(review_result.get("rows") or []),
+                            "correction_applied": review_result.get("correction_applied"),
+                            "saved_correction": review_result.get("saved_correction"),
+                            "review_user": review_result.get("review_user"),
+                            "save_error": review_result.get("save_error", ""),
+                        }
+                    st.session_state.messages.append(review_msg)
+                    st.rerun()
+
+                st.error(review_result.get("message", GENERIC_ERROR_MESSAGE))
+                if review_result.get("error"):
+                    st.caption(review_result["error"])
 
     # Data table
     cols = m.get("columns")
@@ -104,7 +159,7 @@ def main():
         with st.chat_message(m.get("role", "assistant")):
             st.markdown(m.get("content", ""))
             if m.get("role") == "assistant":
-                render_assistant_payload(m, show_debug=show_debug)
+                render_assistant_payload(m, show_debug=show_debug, db_path=db_path)
 
     # User input
     user_q = st.chat_input("Ask about your data...")
@@ -150,6 +205,7 @@ def main():
         "id": str(uuid.uuid4()),
         "role": "assistant",
         "content": assistant_text,
+        "question": user_q,
         "sql": result.get("sql") if show_data else None,
         "columns": result.get("columns") if show_data else None,
         "rows": result.get("rows") if show_data else None,
@@ -162,6 +218,8 @@ def main():
             "resolved_intent": result.get("resolved_intent"),
             "status": result.get("status"),
             "row_count": len(result.get("rows") or []),
+            "reused_correction": result.get("reused_correction", False),
+            "sql_source": result.get("sql_source", ""),
             "thread_id": st.session_state.thread_id,
             "prior_route": prior.get("route", ""),
             "prior_question": prior.get("question", ""),
@@ -170,7 +228,7 @@ def main():
     # Render assistant
     with st.chat_message("assistant"):
         st.markdown(assistant_text)
-        render_assistant_payload(assistant_msg, show_debug=show_debug)
+        render_assistant_payload(assistant_msg, show_debug=show_debug, db_path=db_path)
 
     # Save assistant to history
     st.session_state.messages.append(assistant_msg)

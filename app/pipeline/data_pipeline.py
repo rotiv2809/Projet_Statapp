@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import logging
 from typing import Any, Dict, List
+from app.db.corrections import fetch_similar_correction
 from app.db.sqlite import get_schema_text
 
 from app.agents.analysis_agent import AnalysisAgent
@@ -129,16 +130,37 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
 
     attempts: List[SQLAttemptTrace] = []
     max_attempts = 1 + MAX_SQL_REPAIR_ATTEMPTS
+    reused_correction = False
+    memory_fallback_attempted = False
 
-    try:
-        sql = sql_agent.generate_sql(question, schema_text=schema_text)
+    def _generate_sql_with_llm() -> str:
+        generated_sql = sql_agent.generate_sql(question, schema_text=schema_text)
         log_event(
             logger,
             logging.INFO,
             "sql.generated",
             pipeline="sync",
-            sql=sql,
+            sql=generated_sql,
         )
+        return generated_sql
+
+    try:
+        remembered_sql = fetch_similar_correction(db_path, question)
+        if remembered_sql:
+            sql = remembered_sql
+            reused_correction = True
+            sql_source = "expert_memory"
+            log_event(
+                logger,
+                logging.INFO,
+                "sql.reused_from_memory",
+                pipeline="sync",
+                sql=sql,
+                question_preview=question[:120],
+            )
+        else:
+            sql = _generate_sql_with_llm()
+            sql_source = "llm"
     except Exception as e:
         log_event(
             logger,
@@ -171,6 +193,34 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
                 sql=sql,
                 error=last_error,
             )
+            if reused_correction and not memory_fallback_attempted:
+                try:
+                    sql = _generate_sql_with_llm()
+                    sql_source = "llm"
+                    memory_fallback_attempted = True
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        "sql.memory_fallback_to_llm",
+                        pipeline="sync",
+                        failed_memory_sql=attempts[-1].sql,
+                        error=last_error,
+                    )
+                    continue
+                except Exception as e:
+                    log_event(
+                        logger,
+                        logging.ERROR,
+                        "sql.generation_failed_after_memory_fallback",
+                        pipeline="sync",
+                        error=str(e),
+                    )
+                    return {
+                        "ok": False,
+                        "route": "ERROR",
+                        "stage": "sql_generation",
+                        "message": sql_generation_failed_message(e),
+                    }
         else:
             candidate = execute_sql(db_path, sql)
             if candidate.get("ok"):
@@ -197,6 +247,34 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
                 sql=sql,
                 error=last_error,
             )
+            if reused_correction and not memory_fallback_attempted:
+                try:
+                    sql = _generate_sql_with_llm()
+                    sql_source = "llm"
+                    memory_fallback_attempted = True
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        "sql.memory_fallback_to_llm",
+                        pipeline="sync",
+                        failed_memory_sql=attempts[-1].sql,
+                        error=last_error,
+                    )
+                    continue
+                except Exception as e:
+                    log_event(
+                        logger,
+                        logging.ERROR,
+                        "sql.generation_failed_after_memory_fallback",
+                        pipeline="sync",
+                        error=str(e),
+                    )
+                    return {
+                        "ok": False,
+                        "route": "ERROR",
+                        "stage": "sql_generation",
+                        "message": sql_generation_failed_message(e),
+                    }
 
         if attempt == max_attempts:
             break
@@ -287,4 +365,6 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
         "total_rows": formatted["total_rows"],
         "attempts": [asdict(a) for a in attempts],
         "retry_count": max(0, len(attempts) - 1),
+        "reused_correction": reused_correction,
+        "sql_source": sql_source,
     }

@@ -37,13 +37,6 @@ def build_ranking_clarification_message(parts: Sequence[str]) -> str:
     return "I can look that up. I just need a couple of details:\n" + numbered
 
 
-def format_two_column_preview(shown: int, group_col: str, val_col: str, total_rows: int) -> str:
-    lines = ["Top {} ({} -> {}):".format(shown, group_col, val_col)]
-    if total_rows > shown:
-        lines.append("(showing {}/{})".format(shown, total_rows))
-    return "\n".join(lines)
-
-
 def format_general_results_summary(total_rows: int, preview_count: int) -> str:
     text = "Results: {} rows. Preview: {} rows.".format(total_rows, preview_count)
     if total_rows > preview_count:

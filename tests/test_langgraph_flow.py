@@ -147,6 +147,7 @@ def _install_graph_stubs(
     monkeypatch.setattr(langgraph_flow, "validate_sql", _validate_sql)
     monkeypatch.setattr(langgraph_flow, "execute_sql", _execute_sql)
     monkeypatch.setattr(langgraph_flow, "infer_plotly", lambda question, columns, rows: {"kind": "fallback"})
+    monkeypatch.setattr(langgraph_flow, "fetch_similar_correction", lambda db_path, question: None)
 
     return {
         "guardrails_agent": guardrails_agent,
@@ -428,3 +429,32 @@ def test_invoke_graph_pipeline_merges_clarification_into_followup_question(monke
     assert "Top 10 communes" in merged_question
     assert "User clarification" in merged_question
     assert "number of clients in 2024" in merged_question
+
+
+def test_invoke_graph_pipeline_reuses_logged_correction_before_llm(monkeypatch):
+    patched = _install_graph_stubs(
+        monkeypatch,
+        guardrails_agent=_SequenceGuardrailsAgent(
+            GatekeeperResult(status="READY_FOR_SQL", parsed_intent="sql_query", notes="Allowed")
+        ),
+        sql_agent=_RecordingSQLAgent("SELECT should_not_be_used"),
+    )
+    monkeypatch.setattr(
+        langgraph_flow,
+        "fetch_similar_correction",
+        lambda db_path, question: "SELECT segment, COUNT(*) AS count FROM clients GROUP BY segment",
+    )
+    graph_app = _build_test_graph_app()
+
+    result, _ = langgraph_flow.invoke_graph_pipeline(
+        db_path="data/statapp.sqlite",
+        question="How many clients by segment?",
+        thread_id="reuse-correction",
+        graph_app=graph_app,
+    )
+
+    assert result["route"] == "DATA"
+    assert result["reused_correction"] is True
+    assert result["sql_source"] == "expert_memory"
+    assert result["sql"].startswith("SELECT segment")
+    assert patched["sql_agent"].calls == []

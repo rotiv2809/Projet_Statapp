@@ -21,6 +21,7 @@ from app.agents.error_agent import ErrorAgent
 from app.agents.guardrails.agent import GuardrailsAgent
 from app.agents.sql.agent import SQLAgent
 from app.agents.viz_agent import VizAgent
+from app.db.corrections import fetch_similar_correction
 from app.db.sqlite import get_schema_text
 from app.formatters.format_response import format_response_dict, with_plot_suggestion
 from app.formatters.viz_plotly import infer_plotly
@@ -66,6 +67,10 @@ class AgentState(TypedDict, total=False):
     retry_count: int
     missing_slots: List[str]
     clarifying_questions: List[str]
+    reused_correction: bool
+    sql_source: str
+    needs_execute_retry: bool
+    memory_fallback_attempted: bool
 
     # -- memory / multi-turn context (injected before invoke) --
     resolved_intent: str
@@ -215,6 +220,25 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
 
     # ---- Node: sql_agent ----
     def sql_node(state: AgentState) -> AgentState:
+        remembered_sql = fetch_similar_correction(state["db_path"], state["question"])
+        if remembered_sql:
+            log_event(
+                logger,
+                logging.INFO,
+                "graph.sql_reused_from_memory",
+                route=state.get("route"),
+                sql=remembered_sql,
+            )
+            return {
+                "sql": remembered_sql,
+                "sql_source": "expert_memory",
+                "reused_correction": True,
+                "memory_fallback_attempted": False,
+                "needs_execute_retry": False,
+                "error": "",
+                "attempts": state.get("attempts", []),
+            }
+
         sql = sql_agent.generate_sql(state["question"], state["schema_text"])
         log_event(
             logger,
@@ -223,7 +247,15 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             route=state.get("route"),
             sql=sql,
         )
-        return {"sql": sql, "error": "", "attempts": state.get("attempts", [])}
+        return {
+            "sql": sql,
+            "sql_source": "llm",
+            "reused_correction": False,
+            "memory_fallback_attempted": False,
+            "needs_execute_retry": False,
+            "error": "",
+            "attempts": state.get("attempts", []),
+        }
 
     # ---- Node: execute_sql ----
     def execute_node(state: AgentState) -> AgentState:
@@ -240,7 +272,29 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
                 sql=sql,
                 error=reason,
             )
-            return {"error": "SQL validation failed: {}".format(reason), "attempts": attempts}
+            if state.get("sql_source") == "expert_memory" and not state.get("memory_fallback_attempted"):
+                fallback_sql = sql_agent.generate_sql(state["question"], state["schema_text"])
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "graph.sql_memory_fallback_to_llm",
+                    failed_memory_sql=sql,
+                    error=reason,
+                    replacement_sql=fallback_sql,
+                )
+                return {
+                    "sql": fallback_sql,
+                    "sql_source": "llm",
+                    "memory_fallback_attempted": True,
+                    "needs_execute_retry": True,
+                    "error": "",
+                    "attempts": attempts,
+                }
+            return {
+                "error": "SQL validation failed: {}".format(reason),
+                "attempts": attempts,
+                "needs_execute_retry": False,
+            }
 
         res = execute_sql(state["db_path"], sql)
         if not res.get("ok"):
@@ -253,7 +307,25 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
                 sql=sql,
                 error=err,
             )
-            return {"error": err, "attempts": attempts}
+            if state.get("sql_source") == "expert_memory" and not state.get("memory_fallback_attempted"):
+                fallback_sql = sql_agent.generate_sql(state["question"], state["schema_text"])
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "graph.sql_memory_fallback_to_llm",
+                    failed_memory_sql=sql,
+                    error=err,
+                    replacement_sql=fallback_sql,
+                )
+                return {
+                    "sql": fallback_sql,
+                    "sql_source": "llm",
+                    "memory_fallback_attempted": True,
+                    "needs_execute_retry": True,
+                    "error": "",
+                    "attempts": attempts,
+                }
+            return {"error": err, "attempts": attempts, "needs_execute_retry": False}
 
         attempts.append({"stage": "execution", "sql": sql, "error": ""})
         log_event(
@@ -268,6 +340,7 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             "attempts": attempts,
             "columns": res.get("columns", []),
             "rows": res.get("rows", []),
+            "needs_execute_retry": False,
         }
 
     # ---- Node: error_agent ----
@@ -355,6 +428,8 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
         return "blocked"
 
     def check_execution(state: AgentState) -> str:
+        if state.get("needs_execute_retry"):
+            return "retry_execute"
         if not state.get("error"):
             return "success"
         repair_count = sum(
@@ -398,6 +473,7 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
         check_execution,
         {
             "success": "analysis_agent",
+            "retry_execute": "execute_sql",
             "retry": "error_agent",
             "end": END,
         },
@@ -509,6 +585,8 @@ def invoke_graph_pipeline(
         route=result.get("route", ""),
         status=result.get("status", ""),
         retry_count=result.get("retry_count", 0),
+        reused_correction=result.get("reused_correction", False),
+        sql_source=result.get("sql_source", ""),
     )
 
     return result, prior

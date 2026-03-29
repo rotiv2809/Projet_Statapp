@@ -34,6 +34,11 @@ class _StubAnalysisAgent:
         return self._answer_text
 
 
+class _FailingSQLAgent:
+    def generate_sql(self, question: str, schema_text: str) -> str:
+        raise AssertionError("SQLAgent.generate_sql should not be called when memory is reused")
+
+
 def _patch_pipeline(
     monkeypatch,
     *,
@@ -73,6 +78,7 @@ def _patch_pipeline(
 
     monkeypatch.setattr(data_pipeline, "validate_sql", _validate_sql)
     monkeypatch.setattr(data_pipeline, "execute_sql", lambda db_path, sql_text: execute_result)
+    monkeypatch.setattr(data_pipeline, "fetch_similar_correction", lambda db_path, question: None)
 
 
 def test_run_data_pipeline_returns_chat_for_greeting(monkeypatch):
@@ -143,3 +149,25 @@ def test_run_data_pipeline_repairs_after_validation_failure(monkeypatch):
     assert result["retry_count"] == 1
     assert result["attempts"][0]["stage"] == "validation"
     assert result["attempts"][1]["stage"] == "execution"
+
+
+def test_run_data_pipeline_reuses_logged_correction_before_llm(monkeypatch):
+    ready = GatekeeperResult(status="READY_FOR_SQL", parsed_intent="sql_query", notes="Allowed")
+    _patch_pipeline(
+        monkeypatch,
+        gatekeeper_result=ready,
+        answer_text="Correction memory answer.",
+    )
+    monkeypatch.setattr(
+        data_pipeline,
+        "fetch_similar_correction",
+        lambda db_path, question: "SELECT segment, COUNT(*) AS count FROM clients GROUP BY segment",
+    )
+    monkeypatch.setattr(data_pipeline, "SQLAgent", lambda: _FailingSQLAgent())
+
+    result = data_pipeline.run_data_pipeline("data/statapp.sqlite", "How many clients by segment?")
+
+    assert result["ok"] is True
+    assert result["reused_correction"] is True
+    assert result["sql_source"] == "expert_memory"
+    assert result["sql"].startswith("SELECT segment")

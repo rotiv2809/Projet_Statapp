@@ -43,6 +43,7 @@ Projet_Statapp/
       __init__.py
       data_pipeline.py        # guardrails -> sql -> validate/execute -> error_recovery -> analysis -> viz
       execute_sql.py          # safe SQL execution wrapper
+      expert_review.py        # execute and persist expert-reviewed SQL corrections
       langgraph_flow.py       # optional LangGraph orchestration of the same agents
     safety/
       __init__.py
@@ -56,6 +57,7 @@ Projet_Statapp/
     sanity_checks.py
   tests/
     test_data_pipeline.py
+    test_expert_review.py
     test_format_response.py
     test_guardrails.py
     test_langgraph_flow.py
