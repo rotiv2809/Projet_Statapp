@@ -36,7 +36,8 @@ flowchart TD
     end
 
     subgraph P2[Phase 2 - SQL Synthesis and Controlled Execution]
-        SQL[SQLAgent.generate_sql]
+        SQL[SQLAgent.generate_sql
+hybrid TF-IDF + lexical retrieval]
         VAL[validate_sql]
         DVAL{SQL valid?}
         EXEC[execute_sql]
@@ -49,7 +50,8 @@ flowchart TD
     subgraph P3[Phase 3 - Response Composition]
         FMT[format_response]
         ANA[AnalysisAgent.summarize]
-        VIZ[VizAgent.generate]
+        VIZ[VizAgent.generate
+5 s exec timeout]
         FB[infer_plotly fallback]
         OUT[[Final response payload]]
     end
@@ -78,8 +80,10 @@ flowchart TD
     DEXEC -->|No| FIX
     DEXEC -->|Yes| FMT --> ANA --> VIZ --> OUT
 
-    DRETRY -->|Yes| VAL
-    DRETRY -->|No| ERR
+    FIX -->|Repaired SQL already tried| ERR
+
+    DRETRY -->|Yes - new SQL| VAL
+    DRETRY -->|No budget left| ERR
     VIZ -. fallback if generation fails .-> FB --> OUT
     OUT --> ST
     OUT --> CLI

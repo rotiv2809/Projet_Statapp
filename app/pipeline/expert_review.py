@@ -4,6 +4,7 @@ import logging
 import re
 from typing import Any, Dict
 
+from app.agents.sql.retrieval import add_example
 from app.db.corrections import log_correction
 from app.formatters.format_response import format_response_dict, with_plot_suggestion
 from app.formatters.viz_plotly import can_visualize, infer_plotly
@@ -115,6 +116,13 @@ def run_reviewed_sql(
                 user=review_user or "expert",
             )
             saved_correction = True
+            # Feed the corrected pair into the RAG example store so future
+            # SQL generation retrieves it via TF-IDF similarity, not just
+            # the exact/fuzzy string path in fetch_similar_correction.
+            try:
+                add_example(question, sql)
+            except Exception:
+                pass
         except Exception as exc:
             save_error = str(exc)
             log_event(

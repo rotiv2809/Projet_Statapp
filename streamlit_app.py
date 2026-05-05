@@ -130,6 +130,7 @@ def main():
     configure_logging()
     st.set_page_config(page_title="StatApp SQL Chatbot", layout="wide")
     st.title("StatApp: SQL Chatbot")
+    st.caption("Ask questions about your data in plain language.")
 
     # Sidebar
     st.sidebar.header("Settings")
@@ -137,8 +138,14 @@ def main():
         "SQLite DB path",
         value=os.getenv("SQLITE_PATH", "data/statapp.sqlite"),
     )
-    show_debug = st.sidebar.checkbox("Show debug", value=True)
-    show_technical_details = st.sidebar.checkbox("Show technical details", value=False)
+    user_mode = st.sidebar.radio(
+        "User mode",
+        ["Non-expert", "Expert"],
+        index=0,
+        help="Expert mode shows the generated SQL query, an editable review form, and optional debug info.",
+    )
+    is_expert = user_mode == "Expert"
+    show_debug = is_expert and st.sidebar.checkbox("Show debug info", value=False)
 
     # Session init
     if "messages" not in st.session_state:
@@ -172,7 +179,7 @@ def main():
                 render_assistant_payload(
                     m,
                     show_debug=show_debug,
-                    show_technical_details=show_technical_details,
+                    show_technical_details=is_expert,
                     db_path=db_path,
                 )
 
@@ -258,7 +265,7 @@ def main():
         render_assistant_payload(
             assistant_msg,
             show_debug=show_debug,
-            show_technical_details=show_technical_details,
+            show_technical_details=is_expert,
             db_path=db_path,
         )
 

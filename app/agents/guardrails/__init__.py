@@ -11,7 +11,6 @@ __all__ = [
     "Route",
     "RouterDecision",
     "SQL_LIKE_START",
-    "TimeRange",
     "gatekeep",
     "is_unsafe_user_input",
     "route_message",
@@ -36,14 +35,10 @@ def __getattr__(name: str) -> Any:
             "is_unsafe_user_input": is_unsafe_user_input,
         }
         return mapping[name]
-    if name in {"GatekeeperResult", "TimeRange"}:
-        from app.agents.guardrails.schemas import GatekeeperResult, TimeRange
+    if name == "GatekeeperResult":
+        from app.agents.guardrails.schemas import GatekeeperResult
 
-        mapping = {
-            "GatekeeperResult": GatekeeperResult,
-            "TimeRange": TimeRange,
-        }
-        return mapping[name]
+        return GatekeeperResult
     if name in {"Route", "RouterDecision", "route_message"}:
         from app.agents.guardrails.router import Route, RouterDecision, route_message
 
