@@ -9,6 +9,7 @@ Connection in flow:
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 from typing import Any, Optional, Sequence
 
@@ -100,7 +101,16 @@ class VizAgent:
                 "px": px,
                 "go": go,
             }
-            exec(code, env, env)  # noqa: S102 - restricted builtins sandbox
+            def _run_exec() -> None:
+                exec(code, env, env)  # noqa: S102 - restricted builtins sandbox
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
+                _future = _ex.submit(_run_exec)
+                try:
+                    _future.result(timeout=5.0)
+                except (concurrent.futures.TimeoutError, Exception):
+                    return fallback_viz
+
             fig = env.get("fig")
             if fig is None or not hasattr(fig, "to_dict"):
                 return fallback_viz

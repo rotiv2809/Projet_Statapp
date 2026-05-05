@@ -19,12 +19,12 @@ from app.messages import GREETING_RESPONSES, OUT_OF_SCOPE_MESSAGE
 
 
 def _missing_slots_from_reason(reason: str) -> list[str]:
-    if not reason.startswith("ranking_missing_"):
-        return []
-    suffix = reason.removeprefix("ranking_missing_")
-    if not suffix:
-        return []
-    return [s for s in suffix.split("_") if s]
+    if reason.startswith("ranking_missing_"):
+        suffix = reason.removeprefix("ranking_missing_")
+        return [s for s in suffix.split("_") if s]
+    if reason == "temporal_query_missing_time_range":
+        return ["time_range"]
+    return []
 
 
 class GuardrailsAgent:

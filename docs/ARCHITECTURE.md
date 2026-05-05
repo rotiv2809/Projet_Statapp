@@ -165,7 +165,7 @@ File: `app/agents/sql/agent.py`
 
 - converts question + prompt schema into a SQLite `SELECT` query,
 - uses prompt rules from `app/agents/sql/prompt.py`,
-- uses few-shot retrieval from `app/agents/sql/retrieval.py`,
+- uses few-shot retrieval from `app/agents/sql/retrieval.py` (hybrid TF-IDF + lexical scoring),
 - uses curated examples from `app/agents/sql/example_bank.py`.
 
 ### `error_agent`
@@ -187,6 +187,7 @@ File: `app/agents/analysis_agent.py`
 File: `app/agents/viz_agent.py`
 
 - generates Plotly output through the LLM path,
+- executes LLM-generated Plotly code in a restricted sandbox with a **5-second timeout** (prevents server hang from slow or malicious generated code),
 - falls back to deterministic chart inference/guidance.
 
 ### `chatbot_orchestrator`
@@ -223,8 +224,11 @@ Files:
 
 Current design:
 
-- retrieval is local and dependency-light,
-- curated question→SQL examples are ranked by lexical overlap, tags, and SQL-pattern hints,
+- retrieval is local and dependency-light (no vector DB required),
+- curated question→SQL examples are ranked by a **hybrid score** combining:
+  - lexical token overlap and SQL-pattern hints (original layer),
+  - **TF-IDF cosine similarity** (handles rephrased / synonym questions that share few surface tokens),
+- both scores are normalised to `[0, 1]` and summed before top-k selection,
 - examples can be written into `data/rag_examples.json` for reuse.
 
 ### Expert correction memory
@@ -237,7 +241,9 @@ Files:
 Current design:
 
 - expert-reviewed SQL is stored in the `corrections_log` table,
-- the pipeline checks this memory before generating fresh SQL,
+- the pipeline checks this memory before generating fresh SQL using a **two-pass lookup**:
+  1. Exact normalized-string match (fastest),
+  2. **Fuzzy similarity match** — scores all stored corrections using combined token-overlap + sequence-ratio similarity and returns the best match above threshold `0.55`, so rephrased questions also benefit from expert memory,
 - if correction-memory SQL fails validation or execution, the runtime falls back to fresh LLM generation.
 
 ## 7. Safety Layers
@@ -278,6 +284,8 @@ Key model: `GatekeeperResult`
 - `clarifying_questions`
 - `notes`
 
+> Fields `metric`, `dimensions`, `time_range`, and `filters` were removed from this model — they were declared but never populated by any agent. Semantic extraction is done exclusively by `_extract_query_memory()` in `langgraph_flow.py`.
+
 ### Pipeline response contract
 
 Common response keys across pipeline paths:
@@ -289,6 +297,8 @@ Common response keys across pipeline paths:
 - `preview_rows`, `preview_row_count`, `total_rows`
 - `viz`
 - `attempts`, `retry_count`
+
+> The error repair loop (`error_agent` → `execute_sql`) now short-circuits immediately if the repaired SQL is identical to one already attempted, preventing wasted LLM calls on a stuck repair cycle.
 
 Graph-path-specific keys commonly include:
 

@@ -37,7 +37,8 @@ This document provides an overview of the core functions, classes, and entry poi
 
 - **`route_message(message: str) -> RouterDecision`**
   - Classifies user intent into `REFUSE`, `CLARIFY`, `DATA`, or `CHAT`.
-  - Uses regex patterns for business entities, metrics, time hints, destructive queries, and injection.
+  - `DATA_HINTS` covers core entity names (`clients`, `customers`, `transactions`, `payments`), metrics (`amount`, `revenue`, `average`, `sum`, `rate`), dimensions (`segment`, `commune`, `country`, `channel`, `canal`), KPIs (`taux`, `rate`, `balance`, `acceptance`), and time signals (`20XX`, `month`, `year`), in both English and French.
+  - A question that matches any `DATA_HINTS` pattern is routed to `DATA`; only pure conversational input with no data signals falls back to `CHAT`.
 
 - **`RouterDecision`**
   - Data class describing the routing decision (`route`, `reason`, `clarifying_question`).
@@ -56,10 +57,25 @@ This document provides an overview of the core functions, classes, and entry poi
 
 - **`SQLAgent.generate_sql(question: str, schema_text: str) -> str`**
   - Uses an LLM to convert a natural-language question into a valid `SELECT` SQL query.
+  - Retrieves top-3 few-shot examples via `retrieve_similar_examples()` (hybrid TF-IDF + lexical scoring).
   - Cleans the LLM output (removes markdown fences, trailing `;`, etc.).
 
 - **`_clean_sql(text: str) -> str`**
   - Removes code fences and cleans up extra lines.
+
+---
+
+### `app/agents/sql/retrieval.py`
+
+- **`retrieve_similar_examples(question: str, k: int = 3) -> list[dict]`**
+  - Returns the top-k most relevant `{question, sql}` examples for the incoming question.
+  - Scoring is a **hybrid of two layers** normalised and summed:
+    1. Lexical layer: token overlap (with alias expansion) + SQL-pattern hints + `SequenceMatcher` ratio.
+    2. TF-IDF cosine layer: handles rephrased questions that share few surface tokens with stored examples.
+  - Examples are loaded from `data/rag_examples.json` (falling back to `example_bank.py`).
+
+- **`add_example(question: str, sql: str) -> None`**
+  - Adds or updates an example in the JSON-backed retrieval store.
 
 ---
 
@@ -85,7 +101,21 @@ This document provides an overview of the core functions, classes, and entry poi
 
 - **`VizAgent.generate(question, columns, rows, fallback_viz)`**
   - Asks the LLM to generate Plotly Python code for a chart.
-  - Executes the generated code in a restricted environment and returns a dict `{"type": "plotly", "figure": ...}` or `fallback_viz`.
+  - Executes the generated code in a restricted sandbox (`__builtins__` limited to safe built-ins) inside a `ThreadPoolExecutor` with a **5-second timeout** — returns `fallback_viz` if the code times out or raises an exception.
+  - Returns a dict `{"type": "plotly", "figure": ...}` or `fallback_viz`.
+
+---
+
+### `app/db/corrections.py`
+
+- **`log_correction(db_path, question, generated_sql, corrected_sql, user) -> None`**
+  - Stores an expert correction in the `corrections_log` SQLite table.
+
+- **`fetch_similar_correction(db_path, question) -> Optional[str]`**
+  - Returns the best matching corrected SQL for the given question using a **two-pass lookup**:
+    1. Exact normalized-string match.
+    2. Fuzzy similarity match (combined token-overlap + `SequenceMatcher` ratio) over all stored corrections — returns the best match above threshold `0.55`.
+  - Returns `None` if no match meets the threshold.
 
 ---
 
@@ -194,7 +224,8 @@ This document provides an overview of the core functions, classes, and entry poi
 ### `app/agents/guardrails/schemas.py`
 
 - **`GatekeeperResult`**
-  - Pydantic model standardizing gatekeeper results (status, intent, slots, clarifying questions).
+  - Pydantic model for guardrails output. Fields: `status`, `parsed_intent`, `missing_slots`, `clarifying_questions`, `notes`.
+  - Semantic fields (`metric`, `dimensions`, `time_range`, `filters`) have been removed — they were never populated. Semantic extraction is handled exclusively by `_extract_query_memory()` in the pipeline.
 
 ---
 

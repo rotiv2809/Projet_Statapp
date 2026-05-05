@@ -90,8 +90,6 @@ def classify_turn_intent(question: str, conversation_state: Dict[str, Any], prio
         return "follow_up_refinement"
     if _DATA_HINT_RE.search(q):
         return "new_analytical_question"
-    if prior_route == "CLARIFY":
-        return "clarification_reply"
     return "unsupported_ambiguous"
 
 

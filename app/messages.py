@@ -37,6 +37,12 @@ PLOT_SUGGESTION = (
 )
 
 
+TIME_RANGE_CLARIFICATION_MESSAGE = (
+    "I can answer that, but could you specify a time period "
+    "(for example, 2024 or a specific month) to narrow down the results?"
+)
+
+
 def build_ranking_clarification_message(missing_slots: Sequence[str]) -> str:
     missing = set(missing_slots or [])
     if {"metric", "time_range"}.issubset(missing):

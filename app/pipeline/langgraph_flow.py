@@ -122,38 +122,8 @@ class AgentState(TypedDict, total=False):
     prior_conversation_state: Dict[str, Any]
 
 
-_VIZ_FOLLOWUP_RE = re.compile(
-    r"\b(plot|chart|graph|visuali[sz]e|"
-    r"show\s+(me\s+)?(a\s+)?(chart|graph|plot)|"
-    r"draw|diagram|histogram|bar\s*chart|pie\s*chart)\b",
-    re.IGNORECASE,
-)
-_CONTEXTUAL_FOLLOWUP_PATTERNS = [
-    re.compile(r"^\s*and\b", re.IGNORECASE),
-    re.compile(r"^\s*what about\b", re.IGNORECASE),
-    re.compile(r"^\s*(only|just)\b", re.IGNORECASE),
-    re.compile(r"^\s*top\s+\d+\b", re.IGNORECASE),
-    re.compile(r"\bcompare\s+(with|to)\b", re.IGNORECASE),
-    re.compile(r"\b(sort|order)\b", re.IGNORECASE),
-    re.compile(r"\b(desc|descending|asc|ascending)\b", re.IGNORECASE),
-    re.compile(r"\b(filter|where)\b", re.IGNORECASE),
-    re.compile(r"\b20\d{2}\b"),
-    re.compile(r"\binstead\b", re.IGNORECASE),
-]
 _YEAR_RE = re.compile(r"\b(20\d{2})\b")
 logger = get_logger(__name__)
-
-
-def _looks_like_contextual_followup(question: str) -> bool:
-    q = (question or "").strip()
-    if not q or _VIZ_FOLLOWUP_RE.search(q):
-        return False
-    if any(pattern.search(q) for pattern in _CONTEXTUAL_FOLLOWUP_PATTERNS):
-        return True
-    tokens = q.lower().split()
-    return len(tokens) <= 6 and any(
-        token in {"only", "instead", "descending", "ascending"} for token in tokens
-    )
 
 
 def _extract_query_memory(question: str) -> Dict[str, Any]:
@@ -414,25 +384,23 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
         out: AgentState = {
             "schema_text": schema_text,
             "status": gk.status,
-            "parsed_intent": getattr(gk, "parsed_intent", "") or "",
-            "metric": getattr(gk, "metric", None) or memory["metric"],
-            "dimensions": list(getattr(gk, "dimensions", []) or memory["dimensions"]),
-            "time_range": (
-                getattr(gk, "time_range", None).model_dump()
-                if getattr(gk, "time_range", None) is not None
-                else memory["time_range"]
-            ),
-            "filters": dict(getattr(gk, "filters", {}) or memory["filters"]),
+            "parsed_intent": gk.parsed_intent or "",
+            # Semantic extraction always comes from _extract_query_memory;
+            # GatekeeperResult no longer carries these fields.
+            "metric": memory["metric"],
+            "dimensions": list(memory["dimensions"]),
+            "time_range": memory["time_range"],
+            "filters": dict(memory["filters"]),
             "sort_by": memory["sort_by"],
             "sort_direction": memory["sort_direction"],
             "aggregation_intent": memory["aggregation_intent"],
-            "missing_slots": list(getattr(gk, "missing_slots", []) or []),
-            "clarifying_questions": list(getattr(gk, "clarifying_questions", []) or []),
+            "missing_slots": list(gk.missing_slots or []),
+            "clarifying_questions": list(gk.clarifying_questions or []),
         }
         if gk.status == "OUT OF SCOPE":
-            parsed_intent = getattr(gk, "parsed_intent", "") or ""
+            parsed_intent = gk.parsed_intent or ""
             out["route"] = "CHAT" if parsed_intent == "greeting" else "OUT_OF_SCOPE"
-            out["answer_text"] = build_out_of_scope_answer(parsed_intent, getattr(gk, "notes", "") or "")
+            out["answer_text"] = build_out_of_scope_answer(parsed_intent, gk.notes or "")
         elif gk.status == "NEEDS CLARIFICATION":
             out["route"] = "CLARIFY"
             qs = out["clarifying_questions"]
@@ -445,7 +413,7 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             "graph.guardrails_decision",
             route=out.get("route"),
             status=gk.status,
-            reason=getattr(gk, "parsed_intent", ""),
+            reason=gk.parsed_intent or "",
             missing_slots=out.get("missing_slots", []),
         )
         return out
@@ -791,6 +759,16 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             1 for a in state.get("attempts", []) if a.get("stage") == "repair"
         )
         if repair_count < max_sql_repair_attempts:
+            # Short-circuit if the error agent returned an identical SQL to one
+            # already attempted — further retries would just repeat the same failure.
+            current_sql = (state.get("sql") or "").strip()
+            seen_sqls = {
+                (a.get("sql") or "").strip()
+                for a in state.get("attempts", [])
+                if a.get("stage") in {"execution", "validation"}
+            }
+            if current_sql and current_sql in seen_sqls and repair_count > 0:
+                return "end"
             return "retry"
         return "end"
 
