@@ -35,8 +35,16 @@ class AnalysisAgent:
                         "SQL:\n{sql}\n\n"
                         "COLUMNS:\n{columns}\n\n"
                         "ROWS (sample):\n{rows}\n\n"
-                        "Write a concise answer in plain language. "
-                        "If relevant, mention trends or top values."
+                        "FALLBACK FACTS:\n{fallback_text}\n\n"
+                        "Write a concise, natural answer that responds to the user's actual question first. "
+                        "Rules:\n"
+                        "- Always answer in English.\n"
+                        "- Start with the answer, not a description of the table.\n"
+                        "- Do not mention SQL unless the user asked for it.\n"
+                        "- If the result is a single value, state it plainly.\n"
+                        "- If the result is grouped, summarize the main insight and mention notable values.\n"
+                        "- If the fallback facts indicate a preview, truncation, or ambiguity, mention that limitation briefly.\n"
+                        "- Keep it to 1-3 short sentences."
                     ),
                 ),
             ]
@@ -59,6 +67,7 @@ class AnalysisAgent:
                     "sql": sql,
                     "columns": list(columns or []),
                     "rows": preview,
+                    "fallback_text": fallback_text,
                 }
             )
             cleaned = (text or "").strip()

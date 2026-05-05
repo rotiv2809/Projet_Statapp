@@ -1,13 +1,15 @@
 # StatApp Architecture Guide
 
-This document explains how the project works end-to-end:
+This document explains the current system end to end:
 
 - runtime entry points,
+- the primary LangGraph flow,
+- the synchronous fallback flow,
 - multi-agent responsibilities,
-- synchronous pipeline flow,
-- LangGraph flow,
-- how files connect to each other,
-- why each layer exists.
+- conversation memory and follow-up handling,
+- local SQL retrieval,
+- expert review and correction reuse,
+- and how the main files connect together.
 
 Diagrams are available in:
 `diagrams/`
@@ -17,24 +19,21 @@ Configuration and decision tracking is in:
 
 ## 1. What This Project Does
 
-StatApp is a Text-to-SQL assistant for a SQLite database (`clients`, `dossiers`, `transactions`).
+StatApp is a Text-to-SQL assistant for a SQLite database centered on three business tables:
 
-It takes a natural-language question and returns:
+- `clients`
+- `dossiers`
+- `transactions`
+
+For a user question, the system can produce:
 
 - a safe SQL query,
 - query results,
-- a human-readable answer,
-- an optional Plotly visualization.
+- a concise answer,
+- a visualization,
+- or a clarification / refusal when the request is unsafe or underspecified.
 
-It uses a multi-agent architecture with 5 main agents:
-
-- `guardrails_agent`
-- `sql_agent`
-- `error_agent`
-- `analysis_agent`
-- `viz_agent`
-
-The canonical prompt/role registry is in `app/agents/shared/config.py`.
+The canonical role and prompt registry is in `app/agents/shared/config.py`.
 
 ## 2. Entry Points
 
@@ -42,16 +41,18 @@ The canonical prompt/role registry is in `app/agents/shared/config.py`.
 
 File: `streamlit_app.py`
 
-- Collects user input from chat UI.
-- Calls `app.pipeline.data_pipeline.run_data_pipeline(...)`.
-- Displays answer, SQL, table, and chart.
+- collects user questions from the chat UI,
+- calls `app.pipeline.invoke_graph_pipeline(...)` as the primary path,
+- optionally calls `app.pipeline.run_reviewed_sql(...)` when a reviewer edits the generated SQL,
+- renders answer text, SQL, tabular output, CSV export, and Plotly charts.
 
 ### CLI
 
 File: `app/main.py`
 
-- Runs one question from terminal.
-- Also calls `run_data_pipeline(...)`.
+- runs one question from the terminal,
+- calls `invoke_graph_pipeline(...)` with a fresh thread id,
+- prints the returned payload as JSON.
 
 Example:
 
@@ -59,36 +60,52 @@ Example:
 python -m app.main --db data/statapp.sqlite --question "How many clients by segment?"
 ```
 
-## 3. Current Runtime Flow (Synchronous)
+## 3. Primary Runtime Flow
 
-Main orchestrator file: `app/pipeline/data_pipeline.py`
-To understand the project, always look this file first.
+Main orchestrator file: `app/pipeline/langgraph_flow.py`
 
-Flow:
+This is the primary runtime used by both Streamlit and the CLI.
 
-1. Load schema using `app/db/sqlite.py:get_schema_text`.
-2. Run `GuardrailsAgent.evaluate(question)`.
-3. If blocked or unclear:
-   - return `OUT_OF_SCOPE` or `CLARIFY`.
-4. Generate SQL with `SQLAgent.generate_sql(...)`.
-5. Validate SQL with `app/safety/sql_validator.py:validate_sql`.
-6. Execute SQL with `app/pipeline/execute_sql.py:execute_sql`.
-7. If validate/execute fails:
-   - call `ErrorAgent.repair_sql(...)`,
-   - retry up to `MAX_SQL_REPAIR_ATTEMPTS`.
-8. Format table/text with `app/formatters/format_response.py`.
-9. Generate natural-language answer with `AnalysisAgent.summarize(...)`.
-10. Generate visualization with `VizAgent.generate(...)` and fallback to `app/formatters/viz_plotly.py:infer_plotly`.
-11. Return a single response dict to UI/CLI.
+High-level flow:
 
-## 4. LangGraph Flow (Graph Runtime)
+1. `invoke_graph_pipeline(...)` receives the question and thread id.
+2. Prior conversational context is loaded from LangGraph memory.
+3. `context_resolver` decides whether the turn is:
+   - a new analytical question,
+   - a clarification reply,
+   - a refinement/follow-up,
+   - a chart request,
+   - an explanation/simplification request,
+   - or a reset/unsupported turn.
+4. The prompt schema is built with `app/db/sqlite.py:get_prompt_schema_text(...)` so the model sees a focused subset of the schema.
+5. `GuardrailsAgent.evaluate(...)` decides whether the request is allowed, blocked, or needs clarification.
+6. The system tries to reuse expert-reviewed SQL from `corrections_log`.
+7. If no reusable correction exists, `SQLAgent.generate_sql(...)` creates SQL using:
+   - the focused schema,
+   - the SQL system prompt,
+   - local few-shot retrieval.
+8. SQL is validated by `app/safety/sql_validator.py:validate_sql`.
+9. SQL is executed by `app/pipeline/execute_sql.py:execute_sql`.
+10. If validation or execution fails, `ErrorAgent.repair_sql(...)` enters the retry loop.
+11. Results are formatted and summarized by `AnalysisAgent.summarize(...)`.
+12. `VizAgent.generate(...)` produces a chart when appropriate, with deterministic fallback guidance from `app/formatters/viz_plotly.py`.
+13. The final result object and conversation state are stored for future follow-up turns.
 
-File: `app/pipeline/langgraph_flow.py`
+The synchronous path in `app/pipeline/data_pipeline.py` is still available as a simpler fallback orchestration path.
+
+## 4. Graph Runtime Details
 
 Builder: `build_text2sql_graph(max_sql_repair_attempts=3)`
 
-Nodes:
+Supporting runtime files:
 
+- `app/pipeline/langgraph_flow.py`
+- `app/pipeline/chatbot_orchestrator.py`
+- `app/pipeline/conversation_state.py`
+
+Core nodes:
+
+- `context_resolver`
 - `guardrails_agent`
 - `sql_agent`
 - `execute_sql`
@@ -96,36 +113,48 @@ Nodes:
 - `analysis_agent`
 - `viz_agent`
 
-Edges:
+Node behavior summary:
 
-- `guardrails_agent` -> conditional:
-  - `in_scope` -> `sql_agent`
-  - `blocked` -> `END`
-- `sql_agent` -> `execute_sql`
-- `execute_sql` -> conditional:
-  - `success` -> `analysis_agent`
-  - `retry` -> `error_agent`
-  - `end` -> `END`
-- `error_agent` -> `execute_sql`
-- `analysis_agent` -> `viz_agent` -> `END`
+- `context_resolver`
+  - merges clarification replies,
+  - handles chart follow-ups,
+  - handles explanation/simplification follow-ups,
+  - handles contextual refinements like “and for Cambodia?”.
+- `guardrails_agent`
+  - enforces safety/scope rules and emits routing decisions.
+- `sql_agent`
+  - reuses expert memory when possible,
+  - otherwise generates SQL using the prompt schema and local retrieval.
+- `execute_sql`
+  - validates and runs SQL,
+  - can fall back from bad correction-memory SQL to fresh LLM SQL.
+- `error_agent`
+  - repairs failed SQL and retries execution.
+- `analysis_agent`
+  - generates the final explanation text.
+- `viz_agent`
+  - generates chart payloads or chart guidance.
 
-Access from package:
+Main edge logic:
+
+- `context_resolver` can short-circuit directly to `END` for pure conversational replies.
+- `guardrails_agent` routes either to SQL generation or to a stop condition such as `CLARIFY` / `OUT_OF_SCOPE`.
+- `execute_sql` routes either to analysis, repair, or termination depending on success/failure state.
+
+Package access:
 
 ```python
-from app.pipeline import build_text2sql_graph
-graph = build_text2sql_graph()
+from app.pipeline import build_text2sql_graph, invoke_graph_pipeline
 ```
 
-## 5. Multi-Agent Responsibilities
+## 5. Multi-Agent and Support Responsibilities
 
 ### `guardrails_agent`
 
 File: `app/agents/guardrails/agent.py`
 
-- Combines:
-  - hard safety gate (`app/agents/guardrails/gatekeeper.py`),
-  - semantic router (`app/agents/guardrails/router.py`).
-- Returns `GatekeeperResult` with statuses:
+- combines the deterministic gatekeeper and the semantic router,
+- returns `GatekeeperResult` with statuses:
   - `READY_FOR_SQL`
   - `NEEDS CLARIFICATION`
   - `OUT OF SCOPE`
@@ -134,55 +163,108 @@ File: `app/agents/guardrails/agent.py`
 
 File: `app/agents/sql/agent.py`
 
-- Converts question + schema -> SQLite `SELECT` query.
-- Uses prompt from `app/agents/sql/prompt.py`.
+- converts question + prompt schema into a SQLite `SELECT` query,
+- uses prompt rules from `app/agents/sql/prompt.py`,
+- uses few-shot retrieval from `app/agents/sql/retrieval.py`,
+- uses curated examples from `app/agents/sql/example_bank.py`.
 
 ### `error_agent`
 
 File: `app/agents/error_agent.py`
 
-- Repairs failed SQL based on schema + error message.
-- Used only in retry loop after failed validation/execution.
+- repairs failed SQL from schema + error context,
+- is only used in the retry path.
 
 ### `analysis_agent`
 
 File: `app/agents/analysis_agent.py`
 
-- Converts result rows into concise human explanation.
-- Fallback is deterministic formatter output.
+- turns rows/columns into a concise answer,
+- falls back to deterministic formatter output when needed.
 
 ### `viz_agent`
 
 File: `app/agents/viz_agent.py`
 
-- Generates Plotly code via LLM and executes in restricted env.
-- Fallback chart inference from `app/formatters/viz_plotly.py`.
+- generates Plotly output through the LLM path,
+- falls back to deterministic chart inference/guidance.
 
-## 6. Safety Layers (Defense-in-Depth)
+### `chatbot_orchestrator`
 
-### Layer A: User-input safety
+File: `app/pipeline/chatbot_orchestrator.py`
+
+- classifies follow-up intent,
+- builds normalized analytical requests,
+- decides whether a turn should reuse prior analytical context.
+
+### `conversation_state`
+
+File: `app/pipeline/conversation_state.py`
+
+- stores active topic, grouping, filters, sorting, last SQL, and last result object,
+- enables multi-turn follow-ups without rebuilding context from scratch.
+
+### `expert_review`
+
+File: `app/pipeline/expert_review.py`
+
+- safely executes reviewer-edited SQL,
+- logs expert corrections when the reviewed SQL differs from the original SQL.
+
+## 6. Retrieval and Correction Memory
+
+### Local SQL retrieval
+
+Files:
+
+- `app/agents/sql/example_bank.py`
+- `app/agents/sql/retrieval.py`
+- `scripts/setup/seed_sql_examples.py`
+
+Current design:
+
+- retrieval is local and dependency-light,
+- curated question→SQL examples are ranked by lexical overlap, tags, and SQL-pattern hints,
+- examples can be written into `data/rag_examples.json` for reuse.
+
+### Expert correction memory
+
+Files:
+
+- `app/db/corrections.py`
+- `app/pipeline/expert_review.py`
+
+Current design:
+
+- expert-reviewed SQL is stored in the `corrections_log` table,
+- the pipeline checks this memory before generating fresh SQL,
+- if correction-memory SQL fails validation or execution, the runtime falls back to fresh LLM generation.
+
+## 7. Safety Layers
+
+### Layer A: user-input safety
 
 File: `app/agents/guardrails/gatekeeper.py`
 
-- Blocks SQL-like input and injection markers.
-- Blocks PII requests (`nom`, `prenom`, `date_naissance`).
+- blocks unsafe / out-of-scope / SQL-like requests,
+- blocks PII requests such as `nom`, `prenom`, and `date_naissance`.
 
 ### Layer B: SQL-output safety
 
 File: `app/safety/sql_validator.py`
 
-- Must start with `SELECT`.
-- Single statement only.
-- Blocks destructive keywords.
-- Blocks PII columns.
+- query must start with `SELECT`,
+- only one statement is allowed,
+- destructive keywords are blocked,
+- PII columns are blocked.
 
-### Layer C: Read-only database access
+### Layer C: read-only database access
 
 File: `app/db/sqlite.py`
 
-- Uses SQLite read-only URI (`mode=ro`) by default.
+- opens SQLite with `mode=ro` by default for query execution paths.
 
-## 7. Data Contracts
+## 8. Data Contracts
 
 ### Gatekeeper contract
 
@@ -198,7 +280,7 @@ Key model: `GatekeeperResult`
 
 ### Pipeline response contract
 
-From `run_data_pipeline(...)`, common keys:
+Common response keys across pipeline paths:
 
 - `ok`, `route`, `stage`
 - `sql`
@@ -208,70 +290,92 @@ From `run_data_pipeline(...)`, common keys:
 - `viz`
 - `attempts`, `retry_count`
 
-## 8. File Connection Map
+Graph-path-specific keys commonly include:
+
+- `resolved_intent`
+- `result_object`
+- `conversation_state`
+- `normalized_request`
+- `sql_source`
+- `reused_correction`
+
+## 9. File Connection Map
 
 | File | Main purpose | Called by | Calls |
-|---|---|---|---|
-| `streamlit_app.py` | Web chat UI | user/browser | `app.pipeline.data_pipeline.run_data_pipeline` |
-| `app/main.py` | CLI runner | terminal | `app.pipeline.run_data_pipeline` |
-| `app/pipeline/data_pipeline.py` | sync orchestration | UI + CLI | all agents, validator, execute, formatters |
-| `app/pipeline/langgraph_flow.py` | LangGraph orchestration | `app.pipeline.build_text2sql_graph` | same agents + validation/execute/format |
+| --- | --- | --- | --- |
+| `streamlit_app.py` | Web chat UI | user/browser | `app.pipeline.invoke_graph_pipeline`, `app.pipeline.run_reviewed_sql` |
+| `app/main.py` | CLI runner | terminal | `app.pipeline.invoke_graph_pipeline` |
+| `app/pipeline/chatbot_orchestrator.py` | follow-up normalization | `langgraph_flow.py` | `conversation_state`, regex heuristics |
+| `app/pipeline/conversation_state.py` | context/result memory helpers | `langgraph_flow.py`, `chatbot_orchestrator.py`, `expert_review.py` | local helpers |
+| `app/pipeline/data_pipeline.py` | synchronous orchestration | scripts/tests/fallback runtime | all agents, validator, execute, formatters |
+| `app/pipeline/langgraph_flow.py` | primary graph orchestration | UI + CLI | agents, memory helpers, validation, execution, formatters |
+| `app/pipeline/expert_review.py` | reviewed SQL execution and correction logging | `streamlit_app.py` | `execute_sql`, `log_correction`, formatters |
 | `app/agents/shared/config.py` | agent role/prompt registry | all agents | none |
-| `app/agents/guardrails/agent.py` | guardrail orchestration | pipelines | `app.agents.guardrails.gatekeep`, `router.route_message` |
-| `app/agents/guardrails/router.py` | semantic route detection | `guardrails/agent.py` | regex rules only |
-| `app/agents/sql/agent.py` | SQL generation | pipelines | `llm.factory.get_llm`, prompt template |
-| `app/agents/error_agent.py` | SQL repair | pipelines | `llm.factory.get_llm`, prompt template |
-| `app/agents/analysis_agent.py` | NL summary | pipelines | `llm.factory.get_llm` |
-| `app/agents/viz_agent.py` | LLM chart generation | pipelines | `llm.factory.get_llm`, Plotly |
-| `app/agents/guardrails/gatekeeper.py` | hard input safety | `guardrails/agent.py` | `app.agents.guardrails.schemas`, regex checks |
-| `app/agents/guardrails/schemas.py` | gatekeeper result model | gatekeeper + guardrails | Pydantic |
-| `app/safety/sql_validator.py` | SQL safety checks | pipelines + execute_sql wrapper | regex/token checks |
-| `app/pipeline/execute_sql.py` | validate + execute SQL | pipelines | `db.run_query`, `sql_validator` |
+| `app/agents/guardrails/agent.py` | guardrail orchestration | pipelines | gatekeeper, router |
+| `app/agents/guardrails/router.py` | semantic route detection | `guardrails/agent.py` | regex/heuristic rules |
+| `app/agents/sql/agent.py` | SQL generation | pipelines | LLM factory, prompt, retrieval |
+| `app/agents/sql/retrieval.py` | local few-shot retrieval | `sql/agent.py`, setup script | `example_bank.py`, JSON store |
+| `app/agents/sql/example_bank.py` | curated SQL examples | retrieval | none |
+| `app/agents/error_agent.py` | SQL repair | pipelines | LLM factory |
+| `app/agents/analysis_agent.py` | answer generation | pipelines | LLM factory |
+| `app/agents/viz_agent.py` | chart generation | pipelines | LLM factory, Plotly |
+| `app/safety/sql_validator.py` | SQL safety checks | pipelines + execute wrapper | regex/token checks |
+| `app/pipeline/execute_sql.py` | safe SQL execution wrapper | pipelines | `db.run_query`, validator |
 | `app/db/sqlite.py` | schema + DB access | pipelines + scripts | sqlite3 |
+| `app/db/corrections.py` | expert correction storage/reuse | pipelines | sqlite3 |
 | `app/formatters/format_response.py` | deterministic text/table formatting | pipelines | local helpers |
 | `app/formatters/viz_plotly.py` | deterministic chart fallback | pipelines | local heuristics |
-| `app/llm/factory.py` | provider/model selection | all LLM-based agents | OpenAI/Google/Ollama wrappers |
+| `app/llm/factory.py` | provider/model selection | all LLM-based agents | OpenAI / Google / Ollama wrappers |
 
-## 9. Why This Design
+## 10. Why This Design
 
 - Guardrails are separated from SQL generation:
-  - easier to audit safety decisions.
+  - easier to audit and evolve safety decisions.
 - SQL generation is separated from SQL repair:
-  - clearer failure handling and retries.
-- Deterministic validators exist even with LLM agents:
-  - prevents unsafe output from passing through.
+  - failure handling stays explicit and easier to debug.
+- Follow-up normalization is separated from prompt generation:
+  - conversation logic does not have to live inside the SQL prompt itself.
+- Correction memory is separated from generic few-shot retrieval:
+  - expert fixes and reusable examples solve different problems.
+- Deterministic validation still exists even with LLM agents:
+  - unsafe output cannot silently pass through.
 - Two orchestration styles exist:
-  - synchronous (`data_pipeline.py`) for current app stability,
-  - LangGraph (`langgraph_flow.py`) for graph execution and observability.
+  - LangGraph is the primary runtime with memory,
+  - the synchronous pipeline remains available as a simpler fallback.
+- Prompt schema selection is question-focused:
+  - smaller prompts, less schema noise, better SQL precision.
 
-## 10. Practical Trace Example
+## 11. Practical Trace Example
 
-For question: `"Top 10 communes by number of clients in 2024"`
+For the question: `"Top 10 communes by number of clients in 2024"`
 
-1. `streamlit_app.py` receives input.
-2. `run_data_pipeline` starts.
-3. `GuardrailsAgent` checks:
-   - gatekeeper safety,
-   - router clarity/scope.
-4. `SQLAgent` generates query.
-5. `validate_sql` checks query.
-6. `execute_sql` runs read-only query.
-7. If broken, `ErrorAgent` repairs and loop retries.
-8. `AnalysisAgent` produces narrative answer.
-9. `VizAgent` returns chart payload.
-10. Streamlit renders message + SQL + table + chart.
+1. `streamlit_app.py` receives the user input.
+2. `invoke_graph_pipeline(...)` starts the graph.
+3. `chatbot_orchestrator` and `conversation_state` determine whether the turn is new or contextual.
+4. `GuardrailsAgent` checks safety and scope.
+5. `get_prompt_schema_text(...)` builds a reduced schema for the SQL prompt.
+6. The pipeline checks correction memory for a prior reviewed SQL.
+7. If none exists, `SQLAgent` retrieves similar examples and generates SQL.
+8. `validate_sql(...)` validates the SQL.
+9. `execute_sql(...)` runs the read-only query.
+10. If needed, `ErrorAgent` repairs the SQL and retries.
+11. `AnalysisAgent` produces the answer.
+12. `VizAgent` produces a visualization payload.
+13. Streamlit renders the message, SQL, table, and chart.
 
-## 11. Scripts and Utilities
+## 12. Scripts and Utilities
 
-- `scripts/build_sqlite_db.py`: builds local SQLite from CSVs.
-- `scripts/sanity_checks.py`: simple relational integrity checks.
-- `scripts/manual_data_pipeline_check.py`: manual pipeline run on sample questions.
-- `scripts/manual_router_check.py`: manual router behavior check.
-- `scripts/manual_safety_check.py`: manual gatekeeper + SQL safety check.
+- `scripts/build_sqlite_db.py`: build local SQLite from CSV files.
+- `scripts/sanity_checks.py`: basic relational/data sanity checks.
+- `scripts/manual/data_pipeline_check.py`: manual pipeline run on sample questions.
+- `scripts/manual/router_check.py`: manual router behavior check.
+- `scripts/manual/safety_check.py`: manual gatekeeper + SQL safety check.
+- `scripts/setup/seed_sql_examples.py`: seed the local SQL few-shot retrieval store.
 - `tests/`: authoritative automated pytest suite.
 
-## 12. Notes for Further Evolution
+## 13. Notes for Further Evolution
 
-- If you fully switch to LangGraph runtime, you can make `streamlit_app.py` call graph execution directly.
-- `app/agents/guardrails/gatekeeper.py` is currently deterministic (regex-based). If you later add LLM slot-filling, keep `GatekeeperResult` as the stable output contract.
-- Keep `agent_configs.py` as the single source of truth for agent roles/prompts.
+- The LangGraph runtime is the primary path used by both Streamlit and the CLI.
+- `app/agents/guardrails/gatekeeper.py` is deterministic today. If you later add LLM slot-filling, keep `GatekeeperResult` as the stable output contract.
+- Keep `app/agents/shared/config.py` as the single source of truth for agent roles/prompts.
+- `app/constants.py` centralizes shared constants such as `PII_COLUMNS` and SQL/code-fence cleanup helpers.

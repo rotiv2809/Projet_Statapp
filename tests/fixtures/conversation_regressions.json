@@ -1,0 +1,173 @@
+[
+  {
+    "name": "unnecessary_clarification",
+    "kind": "router",
+    "input": {
+      "prompt": "Top 10 communes by number of clients in 2024"
+    },
+    "expect": {
+      "route": "DATA"
+    }
+  },
+  {
+    "name": "robotic_answer",
+    "kind": "formatter",
+    "input": {
+      "columns": ["nombre_clients"],
+      "rows": [[5000]]
+    },
+    "expect": {
+      "text": "There are 5,000 clients."
+    }
+  },
+  {
+    "name": "bad_chart_choice",
+    "kind": "viz_guidance",
+    "input": {
+      "question": "use a pie chart",
+      "columns": ["nombre_clients"],
+      "rows": [[5000]]
+    },
+    "expect": {
+      "text_contains": "A pie chart does not fit a single total."
+    }
+  },
+  {
+    "name": "wrong_sql",
+    "kind": "graph",
+    "repair_sql": "SELECT commune, COUNT(*) AS count FROM clients GROUP BY commune",
+    "turns": [
+      {
+        "user": "How many clients by commune?",
+        "guardrails": {
+          "status": "READY_FOR_SQL",
+          "parsed_intent": "sql_query",
+          "notes": "Allowed"
+        },
+        "sql": "BROKEN SQL",
+        "execute_result": {
+          "ok": true,
+          "columns": ["commune", "count"],
+          "rows": [["A", 3]]
+        }
+      }
+    ],
+    "expect": {
+      "route": "DATA",
+      "attempt_stages": ["validation", "repair", "execution"]
+    }
+  },
+  {
+    "name": "followup_memory_failure",
+    "kind": "graph",
+    "turns": [
+      {
+        "user": "How many clients by commune in 2024?",
+        "guardrails": {
+          "status": "READY_FOR_SQL",
+          "parsed_intent": "sql_query",
+          "notes": "Allowed"
+        },
+        "sql": "SELECT commune, COUNT(*) AS count FROM clients GROUP BY commune",
+        "execute_result": {
+          "ok": true,
+          "columns": ["commune", "count"],
+          "rows": [["A", 3]]
+        }
+      },
+      {
+        "user": "and for Cambodia?",
+        "guardrails": {
+          "status": "READY_FOR_SQL",
+          "parsed_intent": "sql_query",
+          "notes": "Allowed"
+        },
+        "sql": "SELECT commune, COUNT(*) AS count FROM clients WHERE pays = 'Cambodia' GROUP BY commune",
+        "execute_result": {
+          "ok": true,
+          "columns": ["commune", "count"],
+          "rows": [["B", 2]]
+        }
+      }
+    ],
+    "expect": {
+      "route": "DATA",
+      "seen_question_contains": [
+        "intent: filter_change",
+        "original question: and for Cambodia?",
+        "country"
+      ]
+    }
+  },
+  {
+    "name": "clarify_then_plot_requires_real_result_first",
+    "kind": "graph",
+    "turns": [
+      {
+        "user": "Top 10 communes",
+        "guardrails": {
+          "status": "NEEDS CLARIFICATION",
+          "parsed_intent": "ranking_query_needs_details",
+          "clarifying_questions": [
+            "I can rank the communes, but I need two details first: should I rank them by total amount or by number of transactions, and for which period, for example 2024 or a specific month?"
+          ],
+          "missing_slots": ["metric", "time_range"],
+          "notes": "ranking_missing_metric_time_range"
+        },
+        "sql": "SELECT 1",
+        "execute_result": {
+          "ok": true,
+          "columns": ["dummy"],
+          "rows": [[1]]
+        }
+      },
+      {
+        "user": "plot a bar chart",
+        "guardrails": {
+          "status": "READY_FOR_SQL",
+          "parsed_intent": "sql_query",
+          "notes": "Allowed"
+        },
+        "sql": "SELECT 1",
+        "execute_result": {
+          "ok": true,
+          "columns": ["dummy"],
+          "rows": [[1]]
+        }
+      }
+    ],
+    "expect": {
+      "route": "VIZ_NO_DATA",
+      "answer_text_contains": [
+        "can't plot yet",
+        "Top 10 communes"
+      ]
+    }
+  },
+  {
+    "name": "unsafe_sql_has_specific_refusal_message",
+    "kind": "graph",
+    "turns": [
+      {
+        "user": "DROP TABLE clients",
+        "guardrails": {
+          "status": "OUT OF SCOPE",
+          "parsed_intent": "unsafe_sql_or_injection",
+          "notes": "Refused"
+        },
+        "sql": "SELECT 1",
+        "execute_result": {
+          "ok": true,
+          "columns": ["dummy"],
+          "rows": [[1]]
+        }
+      }
+    ],
+    "expect": {
+      "route": "OUT_OF_SCOPE",
+      "answer_text_contains": [
+        "destructive or raw SQL"
+      ]
+    }
+  }
+]

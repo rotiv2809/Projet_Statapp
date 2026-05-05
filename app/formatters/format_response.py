@@ -1,9 +1,9 @@
-# app/formatters/format_response.py
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import math
+import re
 
 from app.messages import (
     NO_RESULTS_MESSAGE,
@@ -12,7 +12,14 @@ from app.messages import (
     format_general_results_summary,
 )
 
-PII_COLUMNS = {"nom", "prenom", "date_naissance"}
+from app.constants import PII_COLUMNS  # noqa: E402
+YEAR_RE = re.compile(r"^\d{4}$")
+DATEISH_RE = re.compile(r"^\d{4}(-\d{2}){0,2}$")
+MONTH_NAME_RE = re.compile(
+    r"^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|"
+    r"january|february|march|april|june|july|august|september|october|november|december)",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -39,6 +46,50 @@ def _shorten(s: str, max_len: int) -> str:
     if len(s) <= max_len:
         return s
     return s[: max_len - 1] + "…"
+
+
+def _humanize_identifier(value: Any) -> str:
+    return str(value).replace("_", " ").strip()
+
+
+def _pluralize(label: str) -> str:
+    text = _humanize_identifier(label)
+    if not text:
+        return "values"
+    if text.endswith("s"):
+        return text
+    return text + "s"
+
+
+def _to_number(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value).replace(",", ""))
+    except Exception:
+        return None
+
+
+def _format_numeric(value: Any) -> str:
+    number = _to_number(value)
+    if number is None:
+        return _to_str(value)
+    if number.is_integer():
+        return "{:,}".format(int(number))
+    return "{:,.2f}".format(number).rstrip("0").rstrip(".")
+
+
+def _looks_like_time_value(value: Any) -> bool:
+    text = str(value or "").strip()
+    return bool(YEAR_RE.match(text) or DATEISH_RE.match(text) or MONTH_NAME_RE.match(text))
+
+
+def _build_limitations_note(shown: int, total: int) -> str:
+    if total > shown:
+        return " I am summarizing the first {} rows out of {}.".format(shown, total)
+    return ""
 
 
 def _normalize_rows(columns: Sequence[str], rows: Any) -> List[List[Any]]:
@@ -131,11 +182,23 @@ def format_response(
             total_rows=0,
         )
 
-    # Case B: 1 value -> dshort sentence
+    # Case B: 1 value -> short natural sentence
     if len(cols) == 1 and total_rows == 1 and len(preview_str[0]) == 1:
-        val = preview_str[0][0]
+        raw_val = preview[0][0]
+        val = _format_numeric(raw_val)
         col = cols[0]
-        text = f"{col} = {val}"
+        human_col = _humanize_identifier(col)
+        lowered = col.lower()
+        if lowered.startswith("nombre_"):
+            subject = _pluralize(lowered.removeprefix("nombre_"))
+            text = "There are {} {}.".format(val, subject)
+        elif lowered.startswith("count_"):
+            subject = _pluralize(lowered.removeprefix("count_"))
+            text = "There are {} {}.".format(val, subject)
+        elif lowered in {"count", "total", "n", "value"}:
+            text = "The result is {}.".format(val)
+        else:
+            text = "The {} is {}.".format(human_col, val)
         return FormattedResponse(
             text=text,
             table=_ascii_table(cols, preview_str, max_col_width=max_col_width),
@@ -144,17 +207,75 @@ def format_response(
             total_rows=total_rows,
         )
 
-    # Case C: 2 columns 
+    # Case C: 2 columns
     if len(cols) == 2:
         group_col, val_col = cols[0], cols[1]
         shown = len(preview_str)
-        lines = ["Top {} ({} -> {}):".format(shown, group_col, val_col)]
-        for r in preview_str:
-            lines.append(f"- {r[0]} : {r[1]}")
-        if total_rows > shown:
-            lines.append("(showing {}/{})".format(shown, total_rows))
+        raw_xs = [r[0] for r in preview]
+        raw_ys = [r[1] for r in preview]
+        numeric_ys = [_to_number(v) for v in raw_ys]
+        all_numeric = all(v is not None for v in numeric_ys)
+
+        if all_numeric and raw_xs and _looks_like_time_value(raw_xs[0]):
+            if shown >= 2 and total_rows == 2:
+                points = sorted(zip(raw_xs, numeric_ys), key=lambda item: str(item[0]))
+                earlier_x, earlier_y = points[0]
+                later_x, later_y = points[-1]
+                delta = later_y - earlier_y
+                if delta > 0:
+                    text = "{} is higher than {} by {}.".format(
+                        later_x, earlier_x, _format_numeric(delta)
+                    )
+                elif delta < 0:
+                    text = "{} is lower than {} by {}.".format(
+                        later_x, earlier_x, _format_numeric(abs(delta))
+                    )
+                else:
+                    text = "{} is the same as {} at {}.".format(
+                        later_x, earlier_x, _format_numeric(later_y)
+                    )
+                text += _build_limitations_note(shown, total_rows)
+            else:
+                peak_index = max(range(shown), key=lambda idx: numeric_ys[idx] if numeric_ys[idx] is not None else float("-inf"))
+                text = "The peak was in {} with {} {}.".format(
+                    raw_xs[peak_index],
+                    _format_numeric(raw_ys[peak_index]),
+                    _humanize_identifier(val_col),
+                )
+                text += _build_limitations_note(shown, total_rows)
+        elif all_numeric:
+            top_items = [
+                "{} ({})".format(raw_xs[idx], _format_numeric(raw_ys[idx]))
+                for idx in range(min(3, shown))
+            ]
+            if len(top_items) == 1:
+                text = "The top {} is {}.".format(
+                    _humanize_identifier(group_col),
+                    top_items[0],
+                )
+            elif len(top_items) == 2:
+                text = "The top {} are {} and {}.".format(
+                    _pluralize(group_col),
+                    top_items[0],
+                    top_items[1],
+                )
+            else:
+                text = "The top {} are {}, {}, and {}.".format(
+                    _pluralize(group_col),
+                    top_items[0],
+                    top_items[1],
+                    top_items[2],
+                )
+            text += _build_limitations_note(shown, total_rows)
+        else:
+            lines = ["Top {} ({} -> {}):".format(shown, group_col, val_col)]
+            for r in preview_str:
+                lines.append(f"- {r[0]} : {r[1]}")
+            if total_rows > shown:
+                lines.append("(showing {}/{})".format(shown, total_rows))
+            text = "\n".join(lines)
         return FormattedResponse(
-            text="\n".join(lines),
+            text=text,
             table=_ascii_table(cols, preview_str, max_col_width=max_col_width),
             preview_rows=preview_str,
             preview_row_count=shown,
@@ -164,6 +285,10 @@ def format_response(
     # Case D: general table preview
     table = _ascii_table(cols, preview_str, max_col_width=max_col_width)
     text = format_general_results_summary(total_rows, len(preview_str))
+    if total_rows > len(preview_str):
+        text += " I may be missing details outside this preview."
+    elif len(cols) > 2:
+        text += " This result has several columns, so I am keeping the summary high level."
 
     return FormattedResponse(
         text=text,

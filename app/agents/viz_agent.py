@@ -10,22 +10,14 @@ Connection in flow:
 from __future__ import annotations
 
 import json
-import re
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import pandas as pd
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 from app.agents.shared.config import AGENT_CONFIGS
-
-_CODE_FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*|\s*```$", re.MULTILINE)
-
-
-def _clean_code(text: str) -> str:
-    if not text:
-        return ""
-    return re.sub(_CODE_FENCE_RE, "", text).strip()
+from app.constants import strip_code_fences
 
 
 class VizAgent:
@@ -62,8 +54,8 @@ class VizAgent:
         question: str,
         columns: Sequence[str],
         rows: Any,
-        fallback_viz: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Dict[str, Any]]:
+        fallback_viz: Optional[dict[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
         if not isinstance(rows, list) or not rows:
             return fallback_viz
 
@@ -85,7 +77,7 @@ class VizAgent:
                     "rows": json.dumps(df.head(20).to_dict(orient="records"), ensure_ascii=False),
                 }
             )
-            code = _clean_code(raw)
+            code = strip_code_fences(raw)
             if not code or "import " in code:
                 return fallback_viz
 
@@ -102,13 +94,13 @@ class VizAgent:
                 "int": int,
                 "str": str,
             }
-            env: Dict[str, Any] = {
+            env: dict[str, Any] = {
                 "__builtins__": safe_builtins,
                 "df": df,
                 "px": px,
                 "go": go,
             }
-            exec(code, env, env)
+            exec(code, env, env)  # noqa: S102 - restricted builtins sandbox
             fig = env.get("fig")
             if fig is None or not hasattr(fig, "to_dict"):
                 return fallback_viz

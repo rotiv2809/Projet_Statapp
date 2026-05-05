@@ -32,8 +32,8 @@ def test_router_requests_clarification_for_incomplete_ranking_question():
 
     assert decision.route == "CLARIFY"
     assert decision.reason == "ranking_missing_metric_time_range"
-    assert "What metric should I rank by" in (decision.clarifying_question or "")
-    assert "What time period" in (decision.clarifying_question or "")
+    assert "total amount" in (decision.clarifying_question or "")
+    assert "2024" in (decision.clarifying_question or "")
 
 
 def test_router_allows_complete_ranking_question():

@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass
 import logging
 from typing import Any, Dict, List
 from app.db.corrections import fetch_similar_correction
-from app.db.sqlite import get_schema_text
+from app.db.sqlite import get_prompt_schema_text
 
 from app.agents.analysis_agent import AnalysisAgent
 from app.agents.error_agent import ErrorAgent
@@ -31,8 +31,10 @@ from app.messages import (
 )
 from app.safety.sql_validator import validate_sql
 from app.pipeline.execute_sql import execute_sql
+from app.pipeline.conversation_state import build_conversation_state, build_result_object
 
 from app.formatters.format_response import format_response_dict, with_plot_suggestion
+from app.formatters.viz_plotly import can_visualize
 
 MAX_SQL_REPAIR_ATTEMPTS = 3
 logger = get_logger(__name__)
@@ -52,8 +54,29 @@ def _get_clarifying_questions(gk: Any) -> List[str]:
 
 
 def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
-    schema_text = get_schema_text(db_path)
+    schema_text = get_prompt_schema_text(db_path, question)
     guardrails_agent = GuardrailsAgent()
+
+    def _finalize(
+        payload: Dict[str, Any],
+        *,
+        level: int,
+        event: str,
+        **fields: Any,
+    ) -> Dict[str, Any]:
+        result = dict(payload)
+        log_event(
+            logger,
+            level,
+            event,
+            pipeline="sync",
+            db_path=db_path,
+            route=result.get("route", ""),
+            stage=result.get("stage", ""),
+            **fields,
+        )
+        return result
+
     try:
         sql_agent = SQLAgent()
         error_agent = ErrorAgent()
@@ -68,12 +91,13 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
             question_preview=question[:120],
             error=str(exc),
         )
-        return {
+        result = {
             "ok": False,
             "route": "ERROR",
             "stage": "setup",
             "message": str(exc),
         }
+        return _finalize(result, level=logging.ERROR, event="pipeline.failed", error=str(exc))
 
     log_event(
         logger,
@@ -97,7 +121,7 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
     )
     if gk.status == "OUT OF SCOPE":
         if gk.parsed_intent == "greeting":
-            return {
+            result = {
                 "ok": True,
                 "route": "CHAT",
                 "stage": "guardrails_agent",
@@ -106,7 +130,8 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
                 "message": gk.notes or GREETING_RESPONSES[0],
                 "notes": gk.notes,
             }
-        return {
+            return _finalize(result, level=logging.INFO, event="pipeline.completed", reason=gk.parsed_intent)
+        result = {
             "ok": False,
             "route": "OUT_OF_SCOPE",
             "stage": "guardrails_agent",
@@ -115,9 +140,10 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
             "message": OUT_OF_SCOPE_MESSAGE,
             "notes": gk.notes,
         }
+        return _finalize(result, level=logging.INFO, event="pipeline.completed", reason=gk.parsed_intent)
     if gk.status == "NEEDS CLARIFICATION":
         clarifying_questions = _get_clarifying_questions(gk)
-        return {
+        result = {
             "ok": False,
             "route": "CLARIFY",
             "stage": "guardrails_agent",
@@ -127,6 +153,7 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
             "missing_slots": gk.missing_slots,
             "notes": gk.notes,
         }
+        return _finalize(result, level=logging.INFO, event="pipeline.completed", reason=gk.parsed_intent)
 
     attempts: List[SQLAttemptTrace] = []
     max_attempts = 1 + MAX_SQL_REPAIR_ATTEMPTS
@@ -169,12 +196,13 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
             pipeline="sync",
             error=str(e),
         )
-        return {
+        result = {
             "ok": False,
             "route": "ERROR",
             "stage": "sql_generation",
             "message": sql_generation_failed_message(e),
         }
+        return _finalize(result, level=logging.ERROR, event="pipeline.failed", error=str(e))
 
     exec_res: Dict[str, Any] | None = None
     last_error = ""
@@ -215,12 +243,13 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
                         pipeline="sync",
                         error=str(e),
                     )
-                    return {
+                    result = {
                         "ok": False,
                         "route": "ERROR",
                         "stage": "sql_generation",
                         "message": sql_generation_failed_message(e),
                     }
+                    return _finalize(result, level=logging.ERROR, event="pipeline.failed", error=str(e))
         else:
             candidate = execute_sql(db_path, sql)
             if candidate.get("ok"):
@@ -269,12 +298,13 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
                         pipeline="sync",
                         error=str(e),
                     )
-                    return {
+                    result = {
                         "ok": False,
                         "route": "ERROR",
                         "stage": "sql_generation",
                         "message": sql_generation_failed_message(e),
                     }
+                    return _finalize(result, level=logging.ERROR, event="pipeline.failed", error=str(e))
 
         if attempt == max_attempts:
             break
@@ -309,16 +339,7 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
             break
 
     if exec_res is None:
-        log_event(
-            logger,
-            logging.ERROR,
-            "pipeline.failed",
-            pipeline="sync",
-            stage="error_recovery",
-            sql=sql,
-            error=last_error or FAILED_EXECUTABLE_SQL_MESSAGE,
-        )
-        return {
+        result = {
             "ok": False,
             "route": "ERROR",
             "stage": "error_recovery",
@@ -327,10 +348,32 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
             "attempts": [asdict(a) for a in attempts],
             "message": FAILED_EXECUTABLE_SQL_MESSAGE,
         }
+        return _finalize(
+            result,
+            level=logging.ERROR,
+            event="pipeline.failed",
+            sql=sql,
+            error=last_error or FAILED_EXECUTABLE_SQL_MESSAGE,
+        )
 
     columns = exec_res.get("columns", [])
     rows = exec_res.get("rows", [])
     formatted = format_response_dict(columns, rows)
+    result_object = build_result_object(
+        columns,
+        rows,
+        sql=sql,
+        question=question,
+        summary_text=formatted["text"],
+        context_filters=getattr(gk, "filters", {}) or {},
+        current_grouping=getattr(gk, "dimensions", []) or [],
+        time_reference=(
+            getattr(gk, "time_range", None).model_dump()
+            if getattr(gk, "time_range", None) is not None
+            else {}
+        ),
+        entity_focus=getattr(gk, "metric", None) or "",
+    )
     answer_text = analysis_agent.summarize(
         question=question,
         sql=sql,
@@ -338,19 +381,28 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
         rows=rows,
         fallback_text=formatted["text"],
     )
-    answer_text = with_plot_suggestion(answer_text)
-    log_event(
-        logger,
-        logging.INFO,
-        "pipeline.completed",
-        pipeline="sync",
+    if can_visualize(columns, rows):
+        answer_text = with_plot_suggestion(answer_text)
+    conversation_state = build_conversation_state(
+        question=question,
         route="DATA",
         sql=sql,
-        row_count=len(rows),
-        retry_count=max(0, len(attempts) - 1),
+        result_object=result_object,
+        metric=getattr(gk, "metric", None) or "",
+        dimensions=getattr(gk, "dimensions", []) or [],
+        time_range=(
+            getattr(gk, "time_range", None).model_dump()
+            if getattr(gk, "time_range", None) is not None
+            else {}
+        ),
+        filters=getattr(gk, "filters", {}) or {},
+        sort_by="",
+        sort_direction="",
+        aggregation_intent="",
+        last_user_intent=getattr(gk, "parsed_intent", "") or "data_query",
+        answer_text=answer_text,
     )
-
-    return {
+    result = {
         "ok": True,
         "route": "DATA",
         "stage": "done",
@@ -367,4 +419,14 @@ def run_data_pipeline(db_path: str, question: str) -> Dict[str, Any]:
         "retry_count": max(0, len(attempts) - 1),
         "reused_correction": reused_correction,
         "sql_source": sql_source,
+        "result_object": result_object,
+        "conversation_state": conversation_state,
     }
+    return _finalize(
+        result,
+        level=logging.INFO,
+        event="pipeline.completed",
+        sql=sql,
+        row_count=len(rows),
+        retry_count=max(0, len(attempts) - 1),
+    )

@@ -36,13 +36,13 @@ def render_plotly(viz: dict, key: str):
         st.warning("Could not render Plotly figure: {}: {}".format(type(e).__name__, e))
 
 
-def render_assistant_payload(m: dict, show_debug: bool, db_path: str):
+def render_assistant_payload(m: dict, show_debug: bool, show_technical_details: bool, db_path: str):
     """Render assistant extras: SQL, dataframe, download, viz, debug."""
     mid = _msg_id(m)
     question = str(m.get("question") or "")
 
     # SQL
-    if m.get("sql"):
+    if show_technical_details and m.get("sql"):
         with st.expander("Show SQL query"):
             st.code(m["sql"], language="sql")
 
@@ -138,17 +138,27 @@ def main():
         value=os.getenv("SQLITE_PATH", "data/statapp.sqlite"),
     )
     show_debug = st.sidebar.checkbox("Show debug", value=True)
+    show_technical_details = st.sidebar.checkbox("Show technical details", value=False)
 
     # Session init
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "thread_id" not in st.session_state:
         st.session_state.thread_id = str(uuid.uuid4())
+    if "conversation_state" not in st.session_state:
+        st.session_state.conversation_state = {}
+    if "chatbot_state" not in st.session_state:
+        st.session_state.chatbot_state = {}
+    if "last_result_object" not in st.session_state:
+        st.session_state.last_result_object = {}
 
     # Sidebar actions
     if st.sidebar.button("Clear chat"):
         st.session_state.messages = []
         st.session_state.thread_id = str(uuid.uuid4())  # new thread = fresh memory
+        st.session_state.conversation_state = {}
+        st.session_state.chatbot_state = {}
+        st.session_state.last_result_object = {}
         st.rerun()
 
     if st.sidebar.checkbox("Show session history (raw)", value=False):
@@ -159,7 +169,12 @@ def main():
         with st.chat_message(m.get("role", "assistant")):
             st.markdown(m.get("content", ""))
             if m.get("role") == "assistant":
-                render_assistant_payload(m, show_debug=show_debug, db_path=db_path)
+                render_assistant_payload(
+                    m,
+                    show_debug=show_debug,
+                    show_technical_details=show_technical_details,
+                    db_path=db_path,
+                )
 
     # User input
     user_q = st.chat_input("Ask about your data...")
@@ -186,8 +201,8 @@ def main():
         qs = result.get("clarifying_questions", [])
         assistant_text = qs[0] if qs else result.get("answer_text", CLARIFY_REQUEST_MESSAGE)
     elif route == "VIZ_FOLLOWUP":
-        assistant_text = VIZ_FOLLOWUP_MESSAGE
-    elif route in ("OUT_OF_SCOPE", "CHAT", "VIZ_NO_DATA"):
+        assistant_text = result.get("answer_text", VIZ_FOLLOWUP_MESSAGE)
+    elif route in ("OUT_OF_SCOPE", "CHAT", "VIZ_NO_DATA", "VIZ_UNSUPPORTED"):
         assistant_text = result.get("answer_text", "")
     elif route == "ERROR" or result.get("error"):
         assistant_text = result.get("answer_text", result.get("error", GENERIC_ERROR_MESSAGE))
@@ -210,6 +225,9 @@ def main():
         "columns": result.get("columns") if show_data else None,
         "rows": result.get("rows") if show_data else None,
         "viz": result.get("viz") if show_data else None,
+        "result_object": result.get("result_object"),
+        "conversation_state": result.get("conversation_state"),
+        "normalized_request": result.get("normalized_request"),
     }
 
     if show_debug:
@@ -223,12 +241,26 @@ def main():
             "thread_id": st.session_state.thread_id,
             "prior_route": prior.get("route", ""),
             "prior_question": prior.get("question", ""),
+            "result_object": result.get("result_object"),
+            "conversation_state": result.get("conversation_state"),
+            "normalized_request": result.get("normalized_request"),
         }
+
+    if result.get("conversation_state"):
+        st.session_state.conversation_state = result["conversation_state"]
+        st.session_state.chatbot_state = result["conversation_state"]
+    if result.get("result_object"):
+        st.session_state.last_result_object = result["result_object"]
 
     # Render assistant
     with st.chat_message("assistant"):
         st.markdown(assistant_text)
-        render_assistant_payload(assistant_msg, show_debug=show_debug, db_path=db_path)
+        render_assistant_payload(
+            assistant_msg,
+            show_debug=show_debug,
+            show_technical_details=show_technical_details,
+            db_path=db_path,
+        )
 
     # Save assistant to history
     st.session_state.messages.append(assistant_msg)

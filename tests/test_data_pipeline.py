@@ -56,7 +56,7 @@ def _patch_pipeline(
         "rows": [["A", 3]],
     }
 
-    monkeypatch.setattr(data_pipeline, "get_schema_text", lambda db_path: "schema")
+    monkeypatch.setattr(data_pipeline, "get_prompt_schema_text", lambda db_path, question: "schema")
     monkeypatch.setattr(data_pipeline, "GuardrailsAgent", lambda: _StubGuardrailsAgent(gatekeeper_result))
     monkeypatch.setattr(data_pipeline, "SQLAgent", lambda: _StubSQLAgent(sql))
     monkeypatch.setattr(data_pipeline, "ErrorAgent", lambda: _StubErrorAgent(repaired_sql))
@@ -119,6 +119,7 @@ def test_run_data_pipeline_returns_successful_data_payload(monkeypatch):
         monkeypatch,
         gatekeeper_result=ready,
         sql="SELECT segment, COUNT(*) AS count FROM clients GROUP BY segment",
+        execute_result={"ok": True, "columns": ["segment", "count"], "rows": [["A", 3], ["B", 5]]},
         answer_text="Here is the segment summary.",
     )
 
@@ -128,8 +129,25 @@ def test_run_data_pipeline_returns_successful_data_payload(monkeypatch):
     assert result["route"] == "DATA"
     assert result["sql"].startswith("SELECT segment")
     assert result["answer_text"].startswith("Here is the segment summary.")
+    assert result["result_object"]["chart_ready"] is True
     assert "I can plot this data for you" in result["answer_text"]
     assert result["attempts"][0]["stage"] == "execution"
+
+
+def test_run_data_pipeline_does_not_suggest_plot_for_single_value_result(monkeypatch):
+    ready = GatekeeperResult(status="READY_FOR_SQL", parsed_intent="sql_query", notes="Allowed")
+    _patch_pipeline(
+        monkeypatch,
+        gatekeeper_result=ready,
+        sql="SELECT COUNT(*) AS nombre_clients FROM clients",
+        execute_result={"ok": True, "columns": ["nombre_clients"], "rows": [[5000]]},
+        answer_text="There are 5,000 distinct clients in the database.",
+    )
+
+    result = data_pipeline.run_data_pipeline("data/statapp.sqlite", "How many clients are there?")
+
+    assert result["ok"] is True
+    assert "I can plot this data for you" not in result["answer_text"]
 
 
 def test_run_data_pipeline_repairs_after_validation_failure(monkeypatch):

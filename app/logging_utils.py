@@ -5,18 +5,26 @@ import logging
 import os
 from typing import Any
 
+_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
+
 
 def configure_logging() -> None:
     root_logger = logging.getLogger()
     level_name = os.getenv("LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
+
+    formatter = logging.Formatter(_LOG_FORMAT)
+    root_logger.setLevel(level)
     if not root_logger.handlers:
-        logging.basicConfig(
-            level=level,
-            format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        )
-    else:
-        root_logger.setLevel(level)
+        handler = logging.StreamHandler()
+        handler.setLevel(level)
+        handler.setFormatter(formatter)
+        root_logger.addHandler(handler)
+        return
+
+    for handler in root_logger.handlers:
+        handler.setLevel(level)
+        handler.setFormatter(formatter)
 
 
 def get_logger(name: str) -> logging.Logger:

@@ -14,7 +14,12 @@ OUT_OF_SCOPE_MESSAGE = (
 )
 CLARIFY_REQUEST_MESSAGE = "Could you clarify your request?"
 VIZ_NO_DATA_MESSAGE = (
-    "I do not have any data to visualize yet. Ask a data question first, then I can plot the results."
+    "There is no recent chart-ready result in memory. Ask a grouped analytics question first, "
+    "such as top communes by clients in 2024."
+)
+VIZ_UNSUPPORTED_MESSAGE = (
+    "I cannot build a chart from that result. Please ask for grouped data, "
+    "such as counts by category or values over time."
 )
 VIZ_FOLLOWUP_MESSAGE = "Here is the visualization for your previous query."
 GENERIC_ERROR_MESSAGE = "An error occurred."
@@ -32,9 +37,25 @@ PLOT_SUGGESTION = (
 )
 
 
-def build_ranking_clarification_message(parts: Sequence[str]) -> str:
-    numbered = "\n".join("{}.".format(i + 1) + " " + part for i, part in enumerate(parts))
-    return "I can look that up. I just need a couple of details:\n" + numbered
+def build_ranking_clarification_message(missing_slots: Sequence[str]) -> str:
+    missing = set(missing_slots or [])
+    if {"metric", "time_range"}.issubset(missing):
+        return (
+            "I can rank the communes, but I need two details first: should I rank them by "
+            "total amount or by number of transactions, and for which period, for example "
+            "2024 or a specific month?"
+        )
+    if "metric" in missing:
+        return (
+            "I can rank the communes, but what should I rank them by: total amount, "
+            "number of transactions, or another metric?"
+        )
+    if "time_range" in missing:
+        return (
+            "I can rank the communes, but for which period should I do it, for example "
+            "2024 or a specific month?"
+        )
+    return "I can look that up, but I need one more detail to answer correctly."
 
 
 def format_general_results_summary(total_rows: int, preview_count: int) -> str:

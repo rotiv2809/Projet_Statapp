@@ -1,5 +1,8 @@
 from __future__ import annotations
-import argparse, sqlite3, hashlib, json
+import argparse
+import hashlib
+import json
+import sqlite3
 from pathlib import Path
 import pandas as pd
 

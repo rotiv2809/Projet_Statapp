@@ -9,7 +9,26 @@ def test_format_response_two_columns_reports_actual_preview_count():
     assert result.preview_row_count == 20
     assert len(result.preview_rows) == 20
     assert result.total_rows == 30
-    assert "(showing 20/30)" in result.text
+    assert "The top communes are" in result.text
+    assert "first 20 rows out of 30" in result.text
+
+
+def test_format_response_single_number_is_natural():
+    result = format_response(["nombre_clients"], [[5000]])
+
+    assert result.text == "There are 5,000 clients."
+
+
+def test_format_response_comparison_style_for_two_time_points():
+    result = format_response(["year", "count"], [["2023", 120], ["2024", 150]])
+
+    assert "2024 is higher than 2023 by 30" in result.text
+
+
+def test_format_response_trend_style_for_time_series():
+    result = format_response(["month", "count"], [["January", 10], ["March", 25], ["April", 15]])
+
+    assert "The peak was in March" in result.text
 
 
 def test_with_plot_suggestion_is_idempotent():

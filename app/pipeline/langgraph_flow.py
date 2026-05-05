@@ -22,20 +22,39 @@ from app.agents.guardrails.agent import GuardrailsAgent
 from app.agents.sql.agent import SQLAgent
 from app.agents.viz_agent import VizAgent
 from app.db.corrections import fetch_similar_correction
-from app.db.sqlite import get_schema_text
+from app.db.sqlite import get_prompt_schema_text, get_schema_text
 from app.formatters.format_response import format_response_dict, with_plot_suggestion
-from app.formatters.viz_plotly import infer_plotly
+from app.formatters.viz_plotly import (
+    build_visualization_guidance,
+    can_visualize,
+    infer_plotly,
+    requested_chart_type,
+    supports_visualization_request,
+)
 from app.llm.factory import LLMConfigurationError
 from app.logging_utils import get_logger, log_event
 from app.messages import (
     CLARIFY_REQUEST_MESSAGE,
-    OUT_OF_SCOPE_MESSAGE,
     PIPELINE_NONE_MESSAGE,
-    GREETING_RESPONSES,
-    VIZ_NO_DATA_MESSAGE,
     pipeline_error_message,
 )
 from app.pipeline.execute_sql import execute_sql
+from app.pipeline.chatbot_orchestrator import (
+    build_direct_assistant_response,
+    build_normalized_request,
+    classify_turn_intent,
+    has_active_analysis_context,
+)
+from app.pipeline.conversation_state import (
+    build_conversation_state,
+    build_result_object,
+    should_reuse_result_for_chart,
+)
+from app.pipeline.response_policy import (
+    build_out_of_scope_answer,
+    build_viz_no_data_answer,
+    compose_data_answer,
+)
 from app.safety.sql_validator import validate_sql
 
 from langgraph.graph import END, StateGraph
@@ -67,10 +86,21 @@ class AgentState(TypedDict, total=False):
     retry_count: int
     missing_slots: List[str]
     clarifying_questions: List[str]
+    parsed_intent: str
+    metric: str
+    dimensions: List[str]
+    time_range: Dict[str, Any]
+    filters: Dict[str, Any]
+    sort_by: str
+    sort_direction: str
+    aggregation_intent: str
     reused_correction: bool
     sql_source: str
     needs_execute_retry: bool
     memory_fallback_attempted: bool
+    result_object: Dict[str, Any]
+    conversation_state: Dict[str, Any]
+    normalized_request: Dict[str, Any]
 
     # -- memory / multi-turn context (injected before invoke) --
     resolved_intent: str
@@ -81,6 +111,15 @@ class AgentState(TypedDict, total=False):
     prior_columns: List[str]
     prior_rows: List[Any]
     prior_sql: str
+    prior_metric: str
+    prior_dimensions: List[str]
+    prior_time_range: Dict[str, Any]
+    prior_filters: Dict[str, Any]
+    prior_sort_by: str
+    prior_sort_direction: str
+    prior_aggregation_intent: str
+    prior_result_object: Dict[str, Any]
+    prior_conversation_state: Dict[str, Any]
 
 
 _VIZ_FOLLOWUP_RE = re.compile(
@@ -89,7 +128,98 @@ _VIZ_FOLLOWUP_RE = re.compile(
     r"draw|diagram|histogram|bar\s*chart|pie\s*chart)\b",
     re.IGNORECASE,
 )
+_CONTEXTUAL_FOLLOWUP_PATTERNS = [
+    re.compile(r"^\s*and\b", re.IGNORECASE),
+    re.compile(r"^\s*what about\b", re.IGNORECASE),
+    re.compile(r"^\s*(only|just)\b", re.IGNORECASE),
+    re.compile(r"^\s*top\s+\d+\b", re.IGNORECASE),
+    re.compile(r"\bcompare\s+(with|to)\b", re.IGNORECASE),
+    re.compile(r"\b(sort|order)\b", re.IGNORECASE),
+    re.compile(r"\b(desc|descending|asc|ascending)\b", re.IGNORECASE),
+    re.compile(r"\b(filter|where)\b", re.IGNORECASE),
+    re.compile(r"\b20\d{2}\b"),
+    re.compile(r"\binstead\b", re.IGNORECASE),
+]
+_YEAR_RE = re.compile(r"\b(20\d{2})\b")
 logger = get_logger(__name__)
+
+
+def _looks_like_contextual_followup(question: str) -> bool:
+    q = (question or "").strip()
+    if not q or _VIZ_FOLLOWUP_RE.search(q):
+        return False
+    if any(pattern.search(q) for pattern in _CONTEXTUAL_FOLLOWUP_PATTERNS):
+        return True
+    tokens = q.lower().split()
+    return len(tokens) <= 6 and any(
+        token in {"only", "instead", "descending", "ascending"} for token in tokens
+    )
+
+
+def _extract_query_memory(question: str) -> Dict[str, Any]:
+    q = (question or "").strip()
+    lower = q.lower()
+    dimensions: List[str] = []
+    filters: Dict[str, Any] = {}
+    metric = ""
+    aggregation_intent = ""
+    sort_by = ""
+    sort_direction = ""
+    time_range: Dict[str, Any] = {}
+
+    for label in ("segment", "commune", "pays", "country", "enseigne", "categorie_achat", "month", "year"):
+        if re.search(r"\b{}\b".format(re.escape(label)), lower):
+            dimensions.append(label)
+
+    year_match = _YEAR_RE.search(q)
+    if year_match:
+        time_range = {"kind": "year", "value": year_match.group(1)}
+
+    if re.search(r"\bhow many clients\b|\bnumber of clients\b", lower):
+        metric = "clients"
+        aggregation_intent = "count"
+    elif re.search(r"\bhow many transactions\b|\bnumber of transactions\b", lower):
+        metric = "transactions"
+        aggregation_intent = "count"
+    elif re.search(r"\btotal amount\b|\bmontant total\b|\bsum\b", lower):
+        metric = "amount"
+        aggregation_intent = "sum"
+    elif re.search(r"\baverage\b|\bavg\b|\bmoyenne\b", lower):
+        aggregation_intent = "average"
+    elif re.search(r"\bcompare\b", lower):
+        aggregation_intent = "comparison"
+    elif re.search(r"\btrend\b|\bover time\b", lower):
+        aggregation_intent = "trend"
+
+    if re.search(r"\btop\b|\bhighest\b|\bbest\b", lower):
+        sort_direction = "desc"
+        sort_by = metric or "value"
+    elif re.search(r"\blowest\b|\bworst\b", lower):
+        sort_direction = "asc"
+        sort_by = metric or "value"
+    elif re.search(r"\bdescending\b|\bdesc\b", lower):
+        sort_direction = "desc"
+        sort_by = metric or "value"
+    elif re.search(r"\bascending\b|\basc\b", lower):
+        sort_direction = "asc"
+        sort_by = metric or "value"
+
+    filter_match = re.search(
+        r"\b(?:for|in)\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)\b(?:\s+only)?\??$",
+        q,
+    )
+    if filter_match and not _YEAR_RE.search(filter_match.group(1)):
+        filters["scope"] = filter_match.group(1)
+
+    return {
+        "metric": metric,
+        "dimensions": dimensions,
+        "time_range": time_range,
+        "filters": filters,
+        "sort_by": sort_by,
+        "sort_direction": sort_direction,
+        "aggregation_intent": aggregation_intent,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -119,9 +249,38 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
         prior_route = state.get("prior_route", "")
         prior_question = state.get("prior_question", "")
         prior_missing_slots = state.get("prior_missing_slots", [])
+        schema_text = state.get("schema_text") or get_prompt_schema_text(
+            state.get("db_path", ""),
+            question,
+        )
+        prior_result_object = dict(state.get("prior_result_object") or {})
+        prior_conversation_state = dict(
+            state.get("prior_conversation_state")
+            or {
+                "metric": state.get("prior_metric", ""),
+                "current_grouping": state.get("prior_dimensions", []),
+                "current_time_reference": state.get("prior_time_range", {}),
+                "current_filters": state.get("prior_filters", {}),
+                "sort_by": state.get("prior_sort_by", ""),
+                "sort_direction": state.get("prior_sort_direction", ""),
+                "aggregation_intent": state.get("prior_aggregation_intent", ""),
+                "last_result_object": prior_result_object,
+            }
+        )
+        intent = classify_turn_intent(question, prior_conversation_state, prior_route)
+        direct_response = build_direct_assistant_response(question, intent, prior_conversation_state)
+        if direct_response:
+            direct_response["resolved_intent"] = intent
+            return direct_response
+        normalized_request = build_normalized_request(
+            question=question,
+            intent=intent,
+            conversation_state=prior_conversation_state,
+            schema_text=schema_text,
+        )
 
         # Case 1: previous turn asked for clarification
-        if prior_route == "CLARIFY" and prior_question:
+        if prior_route == "CLARIFY" and prior_question and intent == "clarification_reply":
             slot_info = ""
             if prior_missing_slots:
                 slot_info = " (filling slots: {})".format(", ".join(prior_missing_slots))
@@ -138,14 +297,26 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             )
             return {"question": resolved, "resolved_intent": "clarification_merged"}
 
-        # Case 2: user asks for a visualization
-        if _VIZ_FOLLOWUP_RE.search(question):
-            prior_cols = state.get("prior_columns", [])
-            prior_rows = state.get("prior_rows", [])
-            if prior_cols and prior_rows:
-                # Combine the user's viz request with the original data question
-                # so the viz agent sees chart-type hints (e.g. "pie chart")
-                # while also knowing the data context.
+        if normalized_request.get("needs_clarification"):
+            return {
+                "route": "CLARIFY",
+                "answer_text": normalized_request.get("clarification_message", CLARIFY_REQUEST_MESSAGE),
+                "clarifying_questions": [normalized_request.get("clarification_message", CLARIFY_REQUEST_MESSAGE)],
+                "normalized_request": normalized_request,
+                "resolved_intent": intent,
+            }
+
+        # Case 2: user asks for a visualization of the existing result
+        if intent == "visualization_request" and should_reuse_result_for_chart(question, prior_conversation_state):
+            chart_source = (
+                prior_conversation_state.get("last_chartable_result")
+                or prior_result_object
+                or prior_conversation_state.get("last_result_object")
+                or {}
+            )
+            prior_cols = chart_source.get("columns") or state.get("prior_columns", [])
+            prior_rows = chart_source.get("rows") or state.get("prior_rows", [])
+            if chart_source.get("chart_ready") and prior_cols and prior_rows:
                 viz_question = "{} - {}".format(question, prior_question) if prior_question else question
                 log_event(
                     logger,
@@ -155,21 +326,72 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
                     prior_route=prior_route,
                     question_preview=question[:120],
                 )
+                updated_conversation_state = dict(prior_conversation_state)
+                updated_conversation_state["last_user_intent"] = "chart_request"
+                updated_conversation_state["last_user_question"] = question
                 return {
                     "question": viz_question,
                     "columns": prior_cols,
                     "rows": prior_rows,
-                    "sql": state.get("prior_sql", ""),
+                    "sql": chart_source.get("sql") or state.get("prior_sql", ""),
+                    "result_object": chart_source,
+                    "conversation_state": updated_conversation_state,
+                    "normalized_request": normalized_request,
                     "resolved_intent": "viz_followup",
                     "route": "VIZ_FOLLOWUP",
                 }
-            else:
-                # Viz requested but no prior data to plot
+            if chart_source:
                 return {
-                    "resolved_intent": "viz_no_data",
-                    "route": "VIZ_NO_DATA",
-                    "answer_text": VIZ_NO_DATA_MESSAGE,
+                    "resolved_intent": "viz_unsupported",
+                    "route": "VIZ_UNSUPPORTED",
+                    "answer_text": build_visualization_guidance(question, prior_cols, prior_rows),
+                    "viz": None,
+                    "columns": None,
+                    "rows": None,
+                    "sql": None,
+                    "result_object": chart_source,
+                    "conversation_state": prior_conversation_state,
+                    "normalized_request": normalized_request,
                 }
+            return {
+                "resolved_intent": "viz_no_data",
+                "route": "VIZ_NO_DATA",
+                "answer_text": build_viz_no_data_answer(prior_route=prior_route, prior_question=prior_question),
+                "viz": None,
+                "normalized_request": normalized_request,
+            }
+
+        if has_active_analysis_context(prior_conversation_state) and intent in {
+            "filter_change",
+            "follow_up_refinement",
+            "comparison_request",
+            "topk_modification",
+            "sort_modification",
+            "filter_removal",
+            "grouping_change",
+            "correction",
+        }:
+            log_event(
+                logger,
+                logging.INFO,
+                "graph.context_resolved",
+                resolved_intent=intent,
+                prior_route=prior_route,
+                question_preview=question[:120],
+                normalized_request=normalized_request,
+            )
+            return {
+                "question": normalized_request.get("request_text", question),
+                "normalized_request": normalized_request,
+                "resolved_intent": intent,
+            }
+
+        if intent == "new_analytical_question":
+            return {
+                "question": normalized_request.get("request_text", question),
+                "normalized_request": normalized_request,
+                "resolved_intent": intent,
+            }
 
         # Case 3: normal new query
         log_event(
@@ -186,21 +408,31 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
     def guardrails_node(state: AgentState) -> AgentState:
         question = state.get("question", "")
         db_path = state.get("db_path", "")
-        schema_text = state.get("schema_text") or get_schema_text(db_path)
+        schema_text = state.get("schema_text") or get_prompt_schema_text(db_path, question)
         gk = guardrails_agent.evaluate(question)
+        memory = _extract_query_memory(question)
         out: AgentState = {
             "schema_text": schema_text,
             "status": gk.status,
+            "parsed_intent": getattr(gk, "parsed_intent", "") or "",
+            "metric": getattr(gk, "metric", None) or memory["metric"],
+            "dimensions": list(getattr(gk, "dimensions", []) or memory["dimensions"]),
+            "time_range": (
+                getattr(gk, "time_range", None).model_dump()
+                if getattr(gk, "time_range", None) is not None
+                else memory["time_range"]
+            ),
+            "filters": dict(getattr(gk, "filters", {}) or memory["filters"]),
+            "sort_by": memory["sort_by"],
+            "sort_direction": memory["sort_direction"],
+            "aggregation_intent": memory["aggregation_intent"],
             "missing_slots": list(getattr(gk, "missing_slots", []) or []),
             "clarifying_questions": list(getattr(gk, "clarifying_questions", []) or []),
         }
         if gk.status == "OUT OF SCOPE":
-            if getattr(gk, "parsed_intent", "") == "greeting":
-                out["route"] = "CHAT"
-                out["answer_text"] = getattr(gk, "notes", "") or GREETING_RESPONSES[0]
-            else:
-                out["route"] = "OUT_OF_SCOPE"
-                out["answer_text"] = OUT_OF_SCOPE_MESSAGE
+            parsed_intent = getattr(gk, "parsed_intent", "") or ""
+            out["route"] = "CHAT" if parsed_intent == "greeting" else "OUT_OF_SCOPE"
+            out["answer_text"] = build_out_of_scope_answer(parsed_intent, getattr(gk, "notes", "") or "")
         elif gk.status == "NEEDS CLARIFICATION":
             out["route"] = "CLARIFY"
             qs = out["clarifying_questions"]
@@ -367,14 +599,54 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
         cols = state.get("columns", [])
         rows = state.get("rows", [])
         formatted = format_response_dict(cols, rows)
-        answer_text = analysis_agent.summarize(
+        normalized_request = dict(state.get("normalized_request") or {})
+        result_object = build_result_object(
+            cols,
+            rows,
+            sql=state.get("sql", ""),
+            question=state.get("question", ""),
+            summary_text=formatted["text"],
+            context_filters=state.get("filters", {}),
+            current_grouping=state.get("dimensions", []),
+            time_reference=state.get("time_range", {}),
+            entity_focus=state.get("metric", ""),
+        )
+        answer_text = compose_data_answer(
             question=state.get("question", ""),
             sql=state.get("sql", ""),
             columns=cols,
             rows=rows,
             fallback_text=formatted["text"],
+            analysis_agent=analysis_agent,
         )
-        answer_text = with_plot_suggestion(answer_text)
+        change_summary = normalized_request.get("change_summary", "")
+        if change_summary:
+            answer_text = "{} {}".format(change_summary, answer_text).strip()
+        if not rows and state.get("filters"):
+            answer_text = "{} The result is empty for {}.".format(
+                change_summary or "I applied your request.",
+                state.get("filters", {}),
+            ).strip()
+        if result_object.get("chart_ready"):
+            answer_text = with_plot_suggestion(answer_text)
+        conversation_state = build_conversation_state(
+            question=state.get("question", ""),
+            route="DATA",
+            sql=state.get("sql", ""),
+            result_object=result_object,
+            metric=state.get("metric", ""),
+            dimensions=state.get("dimensions", []),
+            time_range=state.get("time_range", {}),
+            filters=state.get("filters", {}),
+            sort_by=state.get("sort_by", ""),
+            sort_direction=state.get("sort_direction", ""),
+            aggregation_intent=state.get("aggregation_intent", ""),
+            last_user_intent=state.get("resolved_intent") or state.get("parsed_intent") or "data_query",
+            prior_state=state.get("prior_conversation_state", {}),
+            normalized_request=normalized_request,
+            answer_text=answer_text,
+            last_filter_field=normalized_request.get("last_filter_field", ""),
+        )
         log_event(
             logger,
             logging.INFO,
@@ -390,12 +662,54 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             "preview_row_count": formatted["preview_row_count"],
             "total_rows": formatted["total_rows"],
             "retry_count": max(0, len(state.get("attempts", [])) - 1),
+            "result_object": result_object,
+            "conversation_state": conversation_state,
+            "normalized_request": normalized_request,
         }
 
     # ---- Node: viz_agent ----
     def viz_node(state: AgentState) -> AgentState:
         cols = state.get("columns", [])
         rows = state.get("rows", [])
+        result_object = dict(
+            state.get("result_object")
+            or build_result_object(
+                cols,
+                rows,
+                sql=state.get("sql", ""),
+                question=state.get("question", ""),
+                context_filters=(state.get("conversation_state") or {}).get("current_filters", {}),
+                current_grouping=(state.get("conversation_state") or {}).get("current_grouping", []),
+                time_reference=(state.get("conversation_state") or {}).get("current_time_reference", {}),
+                entity_focus=(state.get("conversation_state") or {}).get("current_entity_focus", ""),
+            )
+        )
+        conversation_state = dict(state.get("conversation_state") or {})
+        normalized_request = dict(state.get("normalized_request") or {})
+        if not result_object.get("chart_ready"):
+            return {
+                "route": "VIZ_UNSUPPORTED",
+                "answer_text": build_visualization_guidance(state.get("question", ""), cols, rows),
+                "viz": None,
+                "columns": None,
+                "rows": None,
+                "sql": None,
+                "result_object": result_object,
+                "conversation_state": conversation_state,
+                "normalized_request": normalized_request,
+            }
+        if not supports_visualization_request(state.get("question", ""), cols, rows):
+            return {
+                "route": "VIZ_UNSUPPORTED",
+                "answer_text": build_visualization_guidance(state.get("question", ""), cols, rows),
+                "viz": None,
+                "columns": None,
+                "rows": None,
+                "sql": None,
+                "result_object": result_object,
+                "conversation_state": conversation_state,
+                "normalized_request": normalized_request,
+            }
         fallback = infer_plotly(state.get("question", ""), cols, rows)
         viz = viz_agent.generate(
             question=state.get("question", ""),
@@ -410,14 +724,55 @@ def build_text2sql_graph(max_sql_repair_attempts: int = 3):
             has_viz=bool(viz),
             row_count=len(rows),
         )
-        return {"viz": viz}
+        if not viz:
+            return {
+                "route": "VIZ_UNSUPPORTED",
+                "answer_text": build_visualization_guidance(state.get("question", ""), cols, rows),
+                "viz": None,
+                "columns": None,
+                "rows": None,
+                "sql": None,
+                "result_object": result_object,
+                "conversation_state": conversation_state,
+                "normalized_request": normalized_request,
+            }
+        chart_label = requested_chart_type(state.get("question", ""))
+        if chart_label == "chart":
+            chart_label = result_object.get("suggested_chart") or "chart"
+        answer_text = "I turned the previous result into a {}.".format(chart_label)
+        conversation_state = build_conversation_state(
+            question=state.get("question", ""),
+            route="VIZ_FOLLOWUP",
+            sql=state.get("sql", ""),
+            result_object=result_object,
+            metric=conversation_state.get("metric", ""),
+            dimensions=conversation_state.get("current_grouping", []),
+            time_range=conversation_state.get("current_time_reference", {}),
+            filters=conversation_state.get("current_filters", {}),
+            sort_by=conversation_state.get("sort_by", ""),
+            sort_direction=conversation_state.get("sort_direction", ""),
+            aggregation_intent=conversation_state.get("aggregation_intent", ""),
+            last_user_intent="visualization_request",
+            prior_state=conversation_state,
+            normalized_request=normalized_request,
+            answer_text=answer_text,
+            last_filter_field=conversation_state.get("last_filter_field", ""),
+        )
+        return {
+            "viz": viz,
+            "answer_text": answer_text,
+            "result_object": result_object,
+            "conversation_state": conversation_state,
+            "normalized_request": normalized_request,
+        }
 
     # ---- Routing functions ----
     def check_context(state: AgentState) -> str:
         intent = state.get("resolved_intent", "new_query")
+        route = state.get("route", "")
         if intent == "viz_followup":
             return "viz_direct"
-        if intent == "viz_no_data":
+        if intent == "viz_no_data" or route in {"VIZ_NO_DATA", "VIZ_UNSUPPORTED", "CHAT", "CLARIFY"}:
             return "blocked"
         return "guardrails"
 
@@ -551,9 +906,43 @@ def invoke_graph_pipeline(
         prior_route=prior.get("route", ""),
     )
 
+    prior_result_object = prior.get("result_object")
+    if not prior_result_object and (prior.get("columns") or prior.get("preview_rows") or prior.get("rows")):
+        prior_result_object = build_result_object(
+            prior.get("columns", []),
+            prior.get("preview_rows", prior.get("rows", [])),
+            sql=prior.get("sql", ""),
+            question=prior.get("question", ""),
+            context_filters=prior.get("filters", {}),
+            current_grouping=prior.get("dimensions", []),
+            time_reference=prior.get("time_range", {}),
+            entity_focus=prior.get("metric", ""),
+        )
+
+    prior_conversation_state = prior.get("conversation_state")
+    if not prior_conversation_state:
+        prior_conversation_state = build_conversation_state(
+            question=prior.get("question", ""),
+            route=prior.get("route", ""),
+            sql=prior.get("sql", ""),
+            result_object=prior_result_object,
+            metric=prior.get("metric", ""),
+            dimensions=prior.get("dimensions", []),
+            time_range=prior.get("time_range", {}),
+            filters=prior.get("filters", {}),
+            sort_by=prior.get("sort_by", ""),
+            sort_direction=prior.get("sort_direction", ""),
+            aggregation_intent=prior.get("aggregation_intent", ""),
+            last_user_intent=prior.get("resolved_intent") or prior.get("parsed_intent") or "",
+        )
+
     input_state = {
         "question": question,
         "db_path": db_path,
+        "route": "",
+        "answer_text": "",
+        "resolved_intent": "",
+        "viz": None,
         "prior_question": prior.get("question", ""),
         "prior_route": prior.get("route", ""),
         "prior_missing_slots": prior.get("missing_slots", []),
@@ -561,32 +950,48 @@ def invoke_graph_pipeline(
         "prior_columns": prior.get("columns", []),
         "prior_rows": prior.get("preview_rows", prior.get("rows", [])),
         "prior_sql": prior.get("sql", ""),
+        "prior_metric": prior.get("metric", ""),
+        "prior_dimensions": prior.get("dimensions", []),
+        "prior_time_range": prior.get("time_range", {}),
+        "prior_filters": prior.get("filters", {}),
+        "prior_sort_by": prior.get("sort_by", ""),
+        "prior_sort_direction": prior.get("sort_direction", ""),
+        "prior_aggregation_intent": prior.get("aggregation_intent", ""),
+        "prior_result_object": prior_result_object or {},
+        "prior_conversation_state": prior_conversation_state or {},
     }
 
+    error_message = ""
     try:
         result = graph_app.invoke(input_state, config=config)
         if result is None:
+            error_message = PIPELINE_NONE_MESSAGE
             result = {"route": "ERROR", "answer_text": PIPELINE_NONE_MESSAGE}
     except Exception as e:
+        error_message = str(e)
+        result = {"route": "ERROR", "answer_text": pipeline_error_message(e)}
+
+    if error_message:
         log_event(
             logger,
             logging.ERROR,
             "graph.invoke_failed",
             thread_id=thread_id,
-            error=str(e),
+            route=result.get("route", ""),
+            prior_route=prior.get("route", ""),
+            error=error_message,
         )
-        result = {"route": "ERROR", "answer_text": pipeline_error_message(e)}
-
-    log_event(
-        logger,
-        logging.INFO,
-        "graph.invoke_completed",
-        thread_id=thread_id,
-        route=result.get("route", ""),
-        status=result.get("status", ""),
-        retry_count=result.get("retry_count", 0),
-        reused_correction=result.get("reused_correction", False),
-        sql_source=result.get("sql_source", ""),
-    )
+    else:
+        log_event(
+            logger,
+            logging.INFO,
+            "graph.invoke_completed",
+            thread_id=thread_id,
+            route=result.get("route", ""),
+            status=result.get("status", ""),
+            retry_count=result.get("retry_count", 0),
+            reused_correction=result.get("reused_correction", False),
+            sql_source=result.get("sql_source", ""),
+        )
 
     return result, prior

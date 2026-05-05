@@ -41,7 +41,7 @@ DATA_HINTS = [
 ]
 
 RANKING_PATTERN = r"\b(top|best|worst|highest|lowest|meilleur|pire)\b"
-METRIC_HINTS = r"\b(montant|total|sum|count|nombre|avg|average|moyenne|max|min|spend|dépense|transactions?|dossiers?)\b"
+METRIC_HINTS = r"\b(montant|total|sum|count|nombre|avg|average|moyenne|max|min|spend|dépense|transactions?|dossiers?|clients?)\b"
 TIME_HINTS = r"\b(20\d{2}|mois|month|année|year|entre|from|to|depuis|avant|après)\b"
 GREETING_WORDS = {
     "hello",
@@ -90,21 +90,14 @@ def route_message(message: str) -> RouterDecision:
             if need_time:
                 missing.append("time_range")
 
-            cq_parts = []
-            if need_metric:
-                cq_parts.append("What metric should I rank by — total amount, number of transactions, or something else?")
-            if need_time:
-                cq_parts.append("What time period? (e.g. 2024, a specific month)")
-
-            cq_text = build_ranking_clarification_message(cq_parts)
+            cq_text = build_ranking_clarification_message(missing)
 
             return RouterDecision(
                 route="CLARIFY",
                 reason=f"ranking_missing_{'_'.join(missing)}",
                 clarifying_question=cq_text,
             )
-        else:
-            return RouterDecision(route="DATA", reason="ranking_complete")
+        return RouterDecision(route="DATA", reason="ranking_complete")
 
     if _contain_any(DATA_HINTS, q):
         return RouterDecision(route="DATA", reason="mention_data_entities")

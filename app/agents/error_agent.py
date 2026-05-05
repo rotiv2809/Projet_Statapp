@@ -9,23 +9,11 @@ Connection in flow:
 
 from __future__ import annotations
 
-import re
-
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 from app.agents.shared.config import AGENT_CONFIGS
-
-_CODE_FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*|\s*```$", re.MULTILINE)
-
-
-def _clean_sql(text: str) -> str:
-    if not text:
-        return ""
-    s = re.sub(_CODE_FENCE_RE, "", text).strip()
-    if s.endswith(";"):
-        s = s[:-1].rstrip()
-    return s
+from app.constants import clean_sql
 
 
 class ErrorAgent:
@@ -63,7 +51,7 @@ class ErrorAgent:
                 "error": error_message,
             }
         )
-        sql = _clean_sql(raw)
+        sql = clean_sql(raw)
         if not sql:
             raise RuntimeError("Empty repaired SQL from model")
         return sql

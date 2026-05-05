@@ -1,4 +1,7 @@
+"""Relational integrity checks for the SQLite database."""
+
 from app.db.sqlite import run_query
+
 DB = "data/statapp.sqlite"
 
 checks = {
@@ -21,6 +24,7 @@ checks = {
         WHERE d.dossier_id IS NULL
     """,
 }
+
 for name, sql in checks.items():
-    cols, rows = run_query(DB,sql)
+    cols, rows = run_query(DB, sql)
     print(name, {cols[0]: rows[0][0]})
